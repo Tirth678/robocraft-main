@@ -1,0 +1,24 @@
+{
+  "name": "billing-service",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "bun run --watch src/index.ts",
+    "build": "bun build src/index.ts --outdir dist",
+    "start": "bun dist/index.js",
+    "lint": "eslint src",
+    "clean": "rm -rf dist node_modules"
+  },
+  "dependencies": {
+    "elysia": "^1.0.0",
+    "razorpay": "^2.8.6",
+    "shared-types": "*",
+    "shared-utils": "*",
+    "database": "*"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.1.0",
+    "typescript": "^5.4.5",
+    "eslint": "^8.57.0"
+  }
+}

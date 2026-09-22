@@ -1,0 +1,110 @@
+// use prisma-8
+
+// Users table (synced from Clerk)
+model User {
+  id        String   @id @default(uuid())
+  clerkId   String   @unique
+  email     String
+  firstName String?
+  lastName  String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now())
+  orders    Order[]
+
+  @@map("users")
+}
+
+// Categories table
+model Category {
+  id          String    @id @default(uuid())
+  name        String
+  slug        String    @unique
+  description String?
+  products    Product[]
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @default(now())
+
+  @@map("categories")
+}
+
+// Products table
+model Product {
+  id          String    @id @default(uuid())
+  name        String
+  description String
+  price       Float
+  stock       Int       @default(0)
+  images      Json
+  categoryId  String
+  discountId  String?
+  isActive    Boolean   @default(true)
+  category    Category  @relation(fields: [categoryId], references: [id])
+  discount    Discount? @relation(fields: [discountId], references: [id])
+  orderItems  OrderItem[]
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @default(now())
+
+  @@map("products")
+}
+
+// Discounts table
+model Discount {
+  id          String    @id @default(uuid())
+  code        String    @unique
+  type        String
+  value       Float
+  minPurchase Float?
+  maxUses     Int?
+  usedCount   Int       @default(0)
+  expiresAt   DateTime?
+  isActive    Boolean   @default(true)
+  products    Product[]
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @default(now())
+
+  @@map("discounts")
+}
+
+// Orders table
+model Order {
+  id               String      @id @default(uuid())
+  userId           String
+  status           String
+  total            Float
+  razorpayOrderId  String?     @unique
+  razorpayPaymentId String?
+  user             User        @relation(fields: [userId], references: [id])
+  items            OrderItem[]
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @default(now())
+
+  @@map("orders")
+}
+
+// Order items table
+model OrderItem {
+  id        String   @id @default(uuid())
+  orderId   String
+  productId String
+  quantity  Int
+  price     Float
+  order     Order    @relation(fields: [orderId], references: [id])
+  product   Product  @relation(fields: [productId], references: [id])
+
+  @@map("order_items")
+}
+
+// Analytics table
+model Analytics {
+  id              String    @id @default(uuid())
+  date            DateTime  @unique
+  revenue         Float   @default(0)
+  orders          Int       @default(0)
+  pageViews       Int       @default(0)
+  uniqueVisitors  Int       @default(0)
+  conversionRate  Float   @default(0)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @default(now())
+
+  @@map("analytics")
+}

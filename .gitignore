@@ -56,4 +56,9 @@ bun.lockb
 # OS
 Thumbs.db
 
-*.md
+# AI Agents
+.agents
+.claude
+.cursor
+.devin
+prisma-8

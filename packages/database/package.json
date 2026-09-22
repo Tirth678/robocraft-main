@@ -2,23 +2,29 @@
   "name": "database",
   "version": "1.0.0",
   "private": true,
+  "type": "module",
   "main": "./src/index.ts",
   "types": "./src/index.ts",
   "scripts": {
-    "generate": "drizzle-kit generate",
-    "migrate": "drizzle-kit migrate",
-    "push": "drizzle-kit push",
-    "studio": "drizzle-kit studio",
+    "contract:emit": "prisma contract emit",
+    "db:init": "prisma db init",
+    "db:update": "prisma db update",
+    "db:verify": "prisma db verify",
+    "migrate": "prisma db migrate",
+    "migration:plan": "prisma migration plan",
+    "migration:show": "prisma migration show",
+    "migration:status": "prisma migration status",
+    "seed": "bun run src/prisma/seed.ts",
     "lint": "eslint src",
     "clean": "rm -rf node_modules"
   },
   "dependencies": {
-    "drizzle-orm": "^0.30.0",
-    "@supabase/supabase-js": "^2.42.0",
-    "postgres": "^3.4.4"
+    "@prisma/orm-postgres": "8.0.0-rc.11",
+    "temporal-polyfill": "^1.0.4",
+    "@supabase/supabase-js": "^2.42.0"
   },
   "devDependencies": {
-    "drizzle-kit": "^0.21.0",
+    "prisma": "8.0.0-rc.15",
     "typescript": "^5.4.5",
     "eslint": "^8.57.0"
   }

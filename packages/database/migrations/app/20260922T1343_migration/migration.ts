@@ -184,7 +184,7 @@ export default class M extends Migration<never, End> {
         schema: 'public',
         table: 'users',
         columns: [
-          col('clerkId', 'text', { notNull: true, codecRef: { codecId: 'pg/text@1' } }),
+          col('authUserId', 'text', { notNull: true, codecRef: { codecId: 'pg/text@1' } }),
           col('createdAt', 'timestamptz', {
             notNull: true,
             default: fn('now()'),
@@ -229,8 +229,8 @@ export default class M extends Migration<never, End> {
       this.addUnique({
         schema: 'public',
         table: 'users',
-        constraint: 'users_clerkId_key',
-        columns: ['clerkId'],
+        constraint: 'users_authUserId_key',
+        columns: ['authUserId'],
       }),
       this.createIndex({
         schema: 'public',

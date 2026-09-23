@@ -5,14 +5,15 @@
   "type": "module",
   "scripts": {
     "dev": "bun run --watch src/index.ts",
-    "build": "bun build src/index.ts --outdir dist",
+    "build": "bun build src/index.ts --outdir dist --target bun",
     "start": "bun dist/index.js",
     "lint": "eslint src",
     "clean": "rm -rf dist node_modules"
   },
   "dependencies": {
+    "@elysiajs/cors": "^1.4.2",
     "elysia": "^1.0.0",
-    "@clerk/backend": "^1.0.0",
+    "jose": "^6.2.12",
     "shared-types": "*",
     "shared-utils": "*"
   },

@@ -1,9 +1,9 @@
 // use prisma-8
 
-// Users table (synced from Clerk)
+// Commerce user profiles linked to Neon Managed Auth identities in neon_auth.user.
 model User {
   id        String   @id @default(uuid())
-  clerkId   String   @unique
+  authUserId String  @unique
   email     String
   firstName String?
   lastName  String?

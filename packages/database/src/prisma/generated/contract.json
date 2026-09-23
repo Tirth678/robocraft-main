@@ -750,7 +750,7 @@
           },
           "User": {
             "fields": {
-              "clerkId": {
+              "authUserId": {
                 "nullable": false,
                 "type": {
                   "codecId": "pg/text@1",
@@ -819,8 +819,8 @@
             },
             "storage": {
               "fields": {
-                "clerkId": {
-                  "column": "clerkId"
+                "authUserId": {
+                  "column": "authUserId"
                 },
                 "createdAt": {
                   "column": "createdAt"
@@ -1404,7 +1404,7 @@
             },
             "users": {
               "columns": {
-                "clerkId": {
+                "authUserId": {
                   "codecId": "pg/text@1",
                   "nativeType": "text",
                   "nullable": false
@@ -1458,7 +1458,7 @@
               "uniques": [
                 {
                   "columns": [
-                    "clerkId"
+                    "authUserId"
                   ]
                 }
               ]
@@ -1469,7 +1469,7 @@
         "kind": "postgres-schema"
       }
     },
-    "storageHash": "966ffb52be358bb64ee9a48673cfd863aa8bfe3aa18f4075504aa4d7922c014c"
+    "storageHash": "6ce740c3b33a441c708ca1bc2136f78f769b9bd80686ce566415675dbd9bf324"
   },
   "execution": {
     "executionHash": "527039cd6b2b834faf062951805ffcd5297bc428d7ea34d43b31ded7134b8a34",

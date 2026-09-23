@@ -1,12 +1,12 @@
 # Robocraft E-Commerce Platform
 
-A production-ready e-commerce platform with microservices architecture, built with Elysia, Next.js, Supabase, and TypeScript.
+A microservices e-commerce platform built with Elysia, Next.js, Neon Lakebase Postgres, Neon Managed Auth, and TypeScript.
 
 ## Architecture
 
 ### Services
 
-- **auth-service** (Port 3001) - Clerk authentication integration
+- **auth-service** (Port 3001) - Neon Managed Auth JWT validation API
 - **inventory-service** (Port 3002) - Product management and analytics
 - **cart-service** (Port 3003) - Shopping cart with Redis
 - **billing-service** (Port 3004) - Razorpay payment processing
@@ -19,7 +19,7 @@ A production-ready e-commerce platform with microservices architecture, built wi
 
 ### Infrastructure
 
-- **Database**: Supabase (PostgreSQL)
+- **Database**: Neon Lakebase Postgres
 - **Cache/Queue**: Redis + BullMQ
 - **Reverse Proxy**: Nginx
 - **Package Manager**: Bun + Turborepo
@@ -30,8 +30,7 @@ A production-ready e-commerce platform with microservices architecture, built wi
 
 - Node.js >= 18.0.0
 - Bun >= 1.0.0
-- Supabase account
-- Clerk account
+- Neon account
 - Razorpay account
 - Resend account
 
@@ -81,11 +80,11 @@ robocraft-main/
 │   ├── admin-dashboard/       # Next.js admin panel
 │   └── api-gateway/           # Nginx config
 ├── services/
-│   ├── auth-service/          # Elysia + Clerk
+│   ├── auth-service/          # Elysia + Neon Managed Auth
 │   ├── billing-service/       # Elysia + Razorpay
 │   ├── email-service/         # Elysia + BullMQ + Resend
 │   ├── cart-service/          # Elysia + Redis
-│   └── inventory-service/     # Elysia + Supabase
+│   └── inventory-service/     # Elysia + Neon Postgres
 ├── packages/
 │   ├── shared-types/          # Shared TypeScript types
 │   ├── database/              # Drizzle schema + migrations
@@ -97,11 +96,35 @@ robocraft-main/
 
 See `.env.example` for required environment variables.
 
+## Inventory administration
+
+The inventory API is intentionally admin-only. It verifies a Neon Managed Auth
+Bearer token and then checks `inventory_admins`; it never accepts an admin role
+from the request body. Apply
+`packages/database/migrations/sql/20260923_inventory.sql` with the direct
+`DATABASE_URL_UNPOOLED` on a Neon branch before production. Grant the first
+administrator from a trusted terminal after the migration:
+
+```bash
+cd services/inventory-service
+bun run admin:grant -- <neon-auth-user-id>
+```
+
+Admin endpoints are under `/admin/inventory`:
+
+- `GET|POST /items`, `GET|PATCH|DELETE /items/:id`
+- `POST /items/:id/stock-adjustments` (requires a unique idempotency key)
+- `POST /items/:id/discounts`
+- `GET|POST /coupons`, `DELETE /coupons/:id`
+
+Monetary values use integer paise (`*_minor`), avoiding floating-point currency
+rounding. Product-image values are Neon Object Storage keys, not public URLs.
+
 ## Deployment
 
 Designed for deployment on Render with:
 - Redis (Render Redis)
-- PostgreSQL (Render PostgreSQL or Supabase)
+- Neon Lakebase Postgres
 - Docker for services
 
 ## License

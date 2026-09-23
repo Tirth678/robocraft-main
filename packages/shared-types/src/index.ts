@@ -1,7 +1,7 @@
 // User types
 export interface User {
   id: string;
-  clerkId: string;
+  authUserId: string;
   email: string;
   firstName?: string;
   lastName?: string;
@@ -43,6 +43,43 @@ export interface UpdateProductInput {
   categoryId?: string;
   discountId?: string;
   isActive?: boolean;
+}
+
+// Admin inventory types. Monetary fields are integer paise, never floats.
+export interface InventoryItem {
+  id: string;
+  sku: string;
+  name: string;
+  description: string;
+  category?: string;
+  imageKeys: string[];
+  mrpMinor: number;
+  salePriceMinor: number;
+  quantityOnHand: number;
+  reservedQuantity: number;
+  availableQuantity: number;
+  isActive: boolean;
+}
+
+export interface InventoryCoupon {
+  id: string;
+  code: string;
+  kind: 'percentage' | 'fixed';
+  valueMinor: number;
+  minimumOrderMinor: number;
+  maximumDiscountMinor?: number;
+  maxRedemptions?: number;
+  redemptionCount: number;
+  startsAt: Date;
+  endsAt?: Date;
+  isActive: boolean;
+}
+
+export interface StockAdjustment {
+  itemId: string;
+  quantityDelta: number;
+  reason: string;
+  idempotencyKey: string;
 }
 
 // Category types

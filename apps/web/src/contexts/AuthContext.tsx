@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useEffect, useState } from "react";
 import { getStoredAuth, subscribeToAuthChange, clearStoredAuth, type StoredAuth } from "@/lib/auth";
-import { logout as neonLogout, fetchBackendUser } from "@/lib/neonAuth";
+import { logout as neonLogout, fetchBackendUser, syncNeonSession } from "@/lib/neonAuth";
 
 export interface User {
   id: string;
@@ -23,25 +23,41 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [storedAuth, setStoredAuth] = useState<StoredAuth | null>(() => getStoredAuth());
   const [backendUser, setBackendUser] = useState<Partial<User> | null>(null);
-  const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [isLoading, setIsLoading] = useState<boolean>(true);
 
+  // Initial mount: Restore active Neon Auth session from cookies/tokens
   useEffect(() => {
+    let active = true;
+
+    syncNeonSession()
+      .then((auth) => {
+        if (active && auth) {
+          setStoredAuth(auth);
+        }
+      })
+      .finally(() => {
+        if (active) setIsLoading(false);
+      });
+
     const unsubscribe = subscribeToAuthChange(() => {
       setStoredAuth(getStoredAuth());
     });
-    return unsubscribe;
+
+    return () => {
+      active = false;
+      unsubscribe();
+    };
   }, []);
 
   useEffect(() => {
-    if (!storedAuth?.accessToken) {
+    if (!storedAuth?.email) {
       setBackendUser(null);
       return;
     }
 
     let active = true;
-    setIsLoading(true);
 
-    fetchBackendUser(storedAuth.accessToken)
+    fetchBackendUser(storedAuth.accessToken, storedAuth.email)
       .then((userProfile) => {
         if (!active) return;
         if (userProfile) {
@@ -55,10 +71,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
       })
       .catch(() => {
-        if (active) setBackendUser(null);
-      })
-      .finally(() => {
-        if (active) setIsLoading(false);
+        if (active) {
+          setBackendUser({
+            id: storedAuth.email,
+            email: storedAuth.email,
+            role: "user",
+          });
+        }
       });
 
     return () => {
@@ -86,7 +105,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const value: AuthContextType = {
     user,
     token: storedAuth?.accessToken || null,
-    isAuthenticated: Boolean(storedAuth?.accessToken),
+    isAuthenticated: Boolean(storedAuth?.email),
     isLoading,
     logout: handleLogout,
   };

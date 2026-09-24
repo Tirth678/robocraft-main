@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import {
   ArrowLeft,
@@ -13,7 +13,7 @@ import {
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
-import { registerWithEmail, loginWithEmail, loginWithGoogle } from "@/lib/neonAuth";
+import { registerWithEmail, loginWithEmail, loginWithGoogle, handleOAuthCallback } from "@/lib/neonAuth";
 import { getSafeErrorMessage } from "@/lib/apiErrors";
 
 interface SimpleAuthPageProps {
@@ -22,6 +22,7 @@ interface SimpleAuthPageProps {
 
 const SimpleAuthPage = ({ initialMode = "signup" }: SimpleAuthPageProps) => {
   const navigate = useNavigate();
+  const location = useLocation();
   const { user, isAuthenticated, isLoading, logout } = useAuth();
   const [mode, setMode] = useState<"signup" | "login">(initialMode);
 
@@ -31,6 +32,29 @@ const SimpleAuthPage = ({ initialMode = "signup" }: SimpleAuthPageProps) => {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    if (location.pathname === "/auth/callback") {
+      setSubmitting(true);
+      handleOAuthCallback()
+        .then((res) => {
+          if (res.success) {
+            toast.success("Signed in with Google successfully!");
+            navigate("/");
+          } else {
+            toast.error(res.error || "Google authentication failed.");
+            navigate("/login");
+          }
+        })
+        .catch((err) => {
+          toast.error("Google authentication failed.");
+          navigate("/login");
+        })
+        .finally(() => {
+          setSubmitting(false);
+        });
+    }
+  }, [location.pathname, navigate]);
 
   useEffect(() => {
     setMode(initialMode);

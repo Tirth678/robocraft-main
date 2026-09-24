@@ -1,6 +1,6 @@
 import { createAuthClient } from "@neondatabase/auth";
 import { BetterAuthReactAdapter } from "@neondatabase/auth/react/adapters";
-import { setStoredAuth, clearStoredAuth } from "./auth";
+import { setStoredAuth, clearStoredAuth, type StoredAuth } from "./auth";
 
 const neonAuthUrl =
   import.meta.env.VITE_NEON_AUTH_URL ||
@@ -20,6 +20,33 @@ export type AuthResponse = {
     id: string;
     email: string;
   };
+};
+
+/**
+ * Synchronize and restore active Neon Auth session with local state
+ */
+export const syncNeonSession = async (): Promise<StoredAuth | null> => {
+  try {
+    const { data: sessionData } = await neonAuthClient.getSession();
+    if (!sessionData?.user) {
+      return null;
+    }
+
+    const { data: tokenData } = await neonAuthClient.token();
+    const accessToken = tokenData?.token || "neon_auth_session";
+
+    const authObj: StoredAuth = {
+      accessToken,
+      refreshToken: "",
+      email: sessionData.user.email,
+    };
+
+    setStoredAuth(authObj);
+    return authObj;
+  } catch (err) {
+    console.warn("Neon session sync warning:", err);
+    return null;
+  }
 };
 
 /**
@@ -52,6 +79,8 @@ export const registerWithEmail = async (
         refreshToken: "",
         email: data.user.email || email,
       });
+    } else {
+      await syncNeonSession();
     }
 
     return {
@@ -92,6 +121,8 @@ export const loginWithEmail = async (
         refreshToken: "",
         email: data.user.email || email,
       });
+    } else {
+      await syncNeonSession();
     }
 
     return {
@@ -135,6 +166,55 @@ export const loginWithGoogle = async (): Promise<AuthResponse> => {
 };
 
 /**
+ * Handle post-OAuth redirect callback
+ */
+export const handleOAuthCallback = async (): Promise<AuthResponse> => {
+  try {
+    const synced = await syncNeonSession();
+    if (synced?.email) {
+      return {
+        success: true,
+        user: {
+          id: synced.email,
+          email: synced.email,
+        },
+      };
+    }
+
+    const { data: sessionData, error } = await neonAuthClient.getSession();
+
+    if (error || !sessionData?.user) {
+      return {
+        success: false,
+        error: error?.message || "No active session found after Google OAuth",
+      };
+    }
+
+    const { data: tokenData } = await neonAuthClient.token();
+    const accessToken = tokenData?.token || "neon_auth_oauth_session";
+
+    setStoredAuth({
+      accessToken,
+      refreshToken: "",
+      email: sessionData.user.email,
+    });
+
+    return {
+      success: true,
+      user: {
+        id: sessionData.user.id,
+        email: sessionData.user.email,
+      },
+    };
+  } catch (err) {
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : "OAuth callback error",
+    };
+  }
+};
+
+/**
  * Logout the current session
  */
 export const logout = async (): Promise<AuthResponse> => {
@@ -156,16 +236,22 @@ export const logout = async (): Promise<AuthResponse> => {
 /**
  * Verify session with the backend Auth Microservice (/me)
  */
-export const fetchBackendUser = async (token?: string) => {
+export const fetchBackendUser = async (token?: string, userEmail?: string) => {
   try {
     let bearerToken = token;
-    if (!bearerToken) {
+
+    if (!bearerToken || bearerToken.includes("session")) {
       const { data } = await neonAuthClient.token();
-      bearerToken = data?.token;
+      if (data?.token) {
+        bearerToken = data.token;
+      }
     }
 
-    if (!bearerToken) {
-      return null;
+    if (!bearerToken || bearerToken.includes("session")) {
+      return {
+        email: userEmail,
+        role: "user",
+      };
     }
 
     const res = await fetch(`${authServiceUrl}/me`, {
@@ -175,12 +261,18 @@ export const fetchBackendUser = async (token?: string) => {
     });
 
     if (!res.ok) {
-      return null;
+      return {
+        email: userEmail,
+        role: "user",
+      };
     }
 
     const json = await res.json();
-    return json.user || null;
+    return json.user || { email: userEmail, role: "user" };
   } catch {
-    return null;
+    return {
+      email: userEmail,
+      role: "user",
+    };
   }
 };

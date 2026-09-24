@@ -16,11 +16,6 @@ export default defineConfig(({ mode }) => ({
         changeOrigin: true,
         secure: false,
       },
-      "/auth": {
-        target: "http://127.0.0.1:8081",
-        changeOrigin: true,
-        secure: false,
-      },
       "/payment": {
         target: "http://127.0.0.1:8081",
         changeOrigin: true,

@@ -49,8 +49,11 @@ const AnimatedRoutes = () => {
         <Route path="/kits" element={wrap(<KitsPage />)} />
         <Route path="/about" element={wrap(<AboutPage />)} />
         <Route path="/experience-3d" element={wrap(<Experience3D />)} />
-        <Route path="/auth" element={wrap(<SimpleAuthPage />)} />
-        <Route path="/auth/callback" element={wrap(<SimpleAuthPage />)} />
+        <Route path="/auth" element={wrap(<SimpleAuthPage initialMode="signup" />)} />
+        <Route path="/signup" element={wrap(<SimpleAuthPage initialMode="signup" />)} />
+        <Route path="/register" element={wrap(<SimpleAuthPage initialMode="signup" />)} />
+        <Route path="/login" element={wrap(<SimpleAuthPage initialMode="login" />)} />
+        <Route path="/auth/callback" element={wrap(<SimpleAuthPage initialMode="login" />)} />
         <Route path="/admin" element={wrap(<AdminPage />)} />
         <Route path="/admin/products" element={wrap(<AdminProductsPage />)} />
         <Route path="/admin/sales" element={wrap(<AdminSalesPage />)} />

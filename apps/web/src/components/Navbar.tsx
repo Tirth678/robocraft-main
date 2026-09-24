@@ -4,7 +4,6 @@ import { Menu, X, ShoppingCart, User, LogOut, Shield } from "lucide-react";
 import { useCart } from "@/contexts/CartContext";
 import { useNavigate, useLocation } from "react-router-dom";
 import { toast } from "sonner";
-import { SignedIn, SignedOut, UserButton } from "@clerk/clerk-react";
 import { useAuth } from "@/contexts/AuthContext";
 
 const navLinks = [
@@ -21,7 +20,7 @@ const Navbar = () => {
   const { totalItems, setIsOpen } = useCart();
   const navigate = useNavigate();
   const location = useLocation();
-  const { isAuthenticated, logout, user, hasClerkKey } = useAuth();
+  const { isAuthenticated, logout, user } = useAuth();
 
   const isHome = location.pathname === "/";
   const shouldShowSolid = scrolled || !isHome;
@@ -82,52 +81,6 @@ const Navbar = () => {
   };
 
   const renderAuthSection = () => {
-    if (hasClerkKey) {
-      return (
-        <>
-          <SignedIn>
-            <div className="flex items-center gap-4">
-              {user?.role === "admin" && (
-                <button
-                  onClick={() => navigate("/admin")}
-                  className={`flex items-center gap-2 font-body text-sm font-semibold tracking-wider transition-colors ${
-                    shouldShowSolid
-                      ? "text-foreground hover:text-accent"
-                      : "text-primary-foreground/90 hover:text-primary-foreground"
-                  } focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-4 focus-visible:ring-offset-background`}
-                >
-                  <Shield size={18} /> ADMIN
-                </button>
-              )}
-              <button
-                onClick={handleLogout}
-                className={`flex items-center gap-2 font-body text-sm font-semibold tracking-wider transition-colors ${
-                  shouldShowSolid
-                    ? "text-foreground hover:text-accent"
-                    : "text-primary-foreground/90 hover:text-primary-foreground"
-                } focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-4 focus-visible:ring-offset-background`}
-              >
-                <LogOut size={18} /> LOGOUT
-              </button>
-              <UserButton />
-            </div>
-          </SignedIn>
-          <SignedOut>
-            <button
-              onClick={() => navigate("/auth")}
-              className={`flex items-center gap-2 font-body text-sm font-semibold tracking-wider transition-colors ${
-                shouldShowSolid
-                  ? "text-foreground hover:text-accent"
-                  : "text-primary-foreground/90 hover:text-primary-foreground"
-              } focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-4 focus-visible:ring-offset-background`}
-            >
-              <User size={18} /> LOGIN
-            </button>
-          </SignedOut>
-        </>
-      );
-    }
-
     if (isAuthenticated) {
       return (
         <div className="flex items-center gap-4">

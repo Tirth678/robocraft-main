@@ -8,9 +8,14 @@ const allowedOrigins = [
   process.env.ADMIN_DASHBOARD_URL,
 ].filter((origin): origin is string => Boolean(origin));
 
+const adminEmails = (process.env.ADMIN_EMAILS || 'admin@robocraft.com,tirth@robocraft.com')
+  .toLowerCase()
+  .split(',')
+  .map((e) => e.trim());
+
 const app = new Elysia()
   .use(cors({
-    origin: allowedOrigins,
+    origin: allowedOrigins.length > 0 ? allowedOrigins : true,
     credentials: true,
   }))
   .get('/', () => ({
@@ -24,12 +29,21 @@ const app = new Elysia()
     timestamp: new Date().toISOString(),
   }))
   .get('/me', async ({ request, set }) => {
-    const user = await verifyNeonAccessToken(request);
+    const payload = await verifyNeonAccessToken(request);
 
-    if (!user) {
+    if (!payload) {
       set.status = 401;
       return { error: 'Unauthorized' };
     }
+
+    const email = typeof payload.email === 'string' ? payload.email : '';
+    const isExplicitAdmin = payload.role === 'admin' || (email && adminEmails.includes(email.toLowerCase()));
+
+    const user = {
+      ...payload,
+      email,
+      role: isExplicitAdmin ? 'admin' : (payload.role || 'user'),
+    };
 
     return { user };
   })

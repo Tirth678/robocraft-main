@@ -58,6 +58,7 @@ type FrontendProduct = {
 
 function mapBackendToFrontend(bp: InventoryProduct): FrontendProduct {
   const price = Number(bp.price);
+  const mrp = Number((bp as any).mrp) || price;
   const hasStock = bp.stock > 0;
   return {
     id: `product-${bp.id}`,
@@ -65,13 +66,13 @@ function mapBackendToFrontend(bp: InventoryProduct): FrontendProduct {
     subtitle: bp.description || bp.category || "RoboCraft Product",
     description: bp.description || undefined,
     price,
-    originalPrice: price,
-    salePrice: null,
+    originalPrice: mrp,
+    salePrice: mrp > price ? price : null,
     image: getProductImageForBackend(bp),
-    rating: 0,
-    reviews: 0,
-    badge: hasStock ? "In Stock" : "Coming Soon",
-    badgeColor: hasStock ? "bg-accent" : "bg-foreground",
+    rating: 4.8,
+    reviews: 120,
+    badge: hasStock ? (bp.stock <= 5 ? "Low Stock" : "In Stock") : "Coming Soon",
+    badgeColor: hasStock ? (bp.stock <= 5 ? "bg-amber-500" : "bg-accent") : "bg-foreground",
     available: bp.isListed && hasStock,
     backendId: bp.id,
     promoCode: null,

@@ -86,7 +86,18 @@ export interface ProductQuery {
   listedOnly?: boolean;
 }
 
-const inventoryUrl = (path: string) => getBackendUrl(`/inventory${path}`);
+const inventoryBase = (
+  (import.meta.env.VITE_INVENTORY_URL as string | undefined) ||
+  (import.meta.env.VITE_INVENTORY_SERVICE_URL as string | undefined) ||
+  ""
+).trim().replace(/\/+$/, "");
+
+const inventoryUrl = (path: string) => {
+  if (inventoryBase) {
+    return `${inventoryBase}${path.startsWith("/") ? path : `/${path}`}`;
+  }
+  return getBackendUrl(`/inventory${path}`);
+};
 
 function buildQuery(query: ProductQuery = {}) {
   const params = new URLSearchParams();

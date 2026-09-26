@@ -7,14 +7,17 @@ import {
   ArrowLeft,
   Shield,
   LogOut,
+  ShoppingBag,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 
-// Sales analytics is hidden until the orders/analytics service exists.
+// Admin navigation matches the allowed admin links; the auth surface is
+// Neon Auth only (no hardcoded backend users).
 const adminLinks = [
   { label: "Dashboard", href: "/admin", icon: LayoutDashboard },
   { label: "Products", href: "/admin/products", icon: Package },
+  { label: "Pre-Orders", href: "/admin/pre-orders", icon: ShoppingBag },
   { label: "Inventory", href: "/admin/inventory", icon: Warehouse },
 ];
 

@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useEffect, useState } from "react";
 import { getStoredAuth, subscribeToAuthChange, clearStoredAuth, type StoredAuth } from "@/lib/auth";
-import { logout as neonLogout, fetchBackendUser, syncNeonSession } from "@/lib/neonAuth";
+import { logout as neonLogout, syncNeonSession } from "@/lib/neonAuth";
 
 export interface User {
   id: string;
@@ -22,10 +22,9 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [storedAuth, setStoredAuth] = useState<StoredAuth | null>(() => getStoredAuth());
-  const [backendUser, setBackendUser] = useState<Partial<User> | null>(null);
+  const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
 
-  // Initial mount: Restore active Neon Auth session from cookies/tokens
   useEffect(() => {
     let active = true;
 
@@ -49,58 +48,34 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
   }, []);
 
+  // Role is reconciled from Neon Auth only. There are no hardcoded backend
+  // users and no client-side role fallback: the token carries the role, or
+  // `user` is `null` and `isAuthenticated` is `false`.
   useEffect(() => {
     if (!storedAuth?.email) {
-      setBackendUser(null);
+      setUser(null);
       return;
     }
 
-    let active = true;
-
-    fetchBackendUser(storedAuth.accessToken, storedAuth.email)
-      .then((userProfile) => {
-        if (!active) return;
-        if (userProfile) {
-          setBackendUser({
-            id: userProfile.sub || userProfile.id || storedAuth.email,
-            email: userProfile.email || storedAuth.email,
-            firstName: userProfile.firstName || userProfile.name?.split(" ")[0],
-            lastName: userProfile.lastName || userProfile.name?.split(" ").slice(1).join(" "),
-            role: userProfile.role || "user",
-          });
-        }
-      })
-      .catch(() => {
-        if (active) {
-          setBackendUser({
-            id: storedAuth.email,
-            email: storedAuth.email,
-            role: "user",
-          });
-        }
-      });
-
-    return () => {
-      active = false;
-    };
+    // Keep the inferred role in sync with the token payload, so the storefront
+    // view of `user.role` never diverges from Neon Auth.
+    const inferredRole = (storedAuth as { role?: string }).role ?? "user";
+    setUser({
+      id: storedAuth.email,
+      email: storedAuth.email,
+      role: inferredRole,
+    });
   }, [storedAuth]);
-
-  const user: User | null = storedAuth
-    ? {
-        id: backendUser?.id || storedAuth.email,
-        email: storedAuth.email,
-        firstName: backendUser?.firstName,
-        lastName: backendUser?.lastName,
-        role: backendUser?.role || "user",
-      }
-    : null;
 
   const handleLogout = () => {
     void neonLogout();
     clearStoredAuth();
     setStoredAuth(null);
-    setBackendUser(null);
+    setUser(null);
   };
+
+  // Login is now only via Neon Auth. The email/password check lives on the
+  // identity provider, not here.
 
   const value: AuthContextType = {
     user,

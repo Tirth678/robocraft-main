@@ -86,6 +86,46 @@ export interface ProductQuery {
   listedOnly?: boolean;
 }
 
+export interface PreOrderProductInfo {
+  id: string;
+  name: string;
+  sku: string;
+  price: number;
+  mrp: number;
+  imageUrl: string | null;
+  description: string | null;
+  category: string | null;
+}
+
+export interface PreOrder {
+  id: string;
+  productId: string;
+  quantity: number;
+  status: string;
+  customerEmail: string;
+  customerName: string | null;
+  customerPhone: string | null;
+  notes: string | null;
+  createdAt: string;
+  updatedAt: string;
+  product: PreOrderProductInfo;
+  totalAmount: number;
+}
+
+export interface PreOrderCreateInput {
+  productId: string;
+  quantity?: number;
+  customerEmail: string;
+  customerName?: string;
+  customerPhone?: string;
+  notes?: string;
+}
+
+export interface PreOrderPage {
+  items: PreOrder[];
+  total: number;
+}
+
 const inventoryBase = (
   (import.meta.env.VITE_INVENTORY_URL as string | undefined) ||
   (import.meta.env.VITE_INVENTORY_SERVICE_URL as string | undefined) ||
@@ -224,3 +264,31 @@ export const attachAsset = (
 
 export const deleteAsset = (token: string, publicId: string) =>
   request<InventoryAsset>(`/assets/${publicId}`, { token, method: "DELETE" });
+
+export const checkPreOrderAvailability = (productId: string) =>
+  request<{ product: InventoryProduct; canPreOrder: boolean }>(`/pre-orders/product/${productId}`);
+
+export const createPreOrder = (input: PreOrderCreateInput) =>
+  request<{ id: string }>("/pre-orders", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+
+export const fetchAdminPreOrders = (token: string, query?: { status?: string; limit?: number; offset?: number }) =>
+  request<PreOrderPage>(`/admin/pre-orders${buildQuery(query as any)}`, { token });
+
+export const fetchAdminPreOrder = (token: string, id: string) =>
+  request<PreOrder>(`/admin/pre-orders/${id}`, { token });
+
+export const updateAdminPreOrder = (token: string, id: string, payload: { status?: string; customerName?: string; customerPhone?: string; notes?: string }) =>
+  request<PreOrder>(`/admin/pre-orders/${id}`, {
+    token,
+    method: "PATCH",
+    body: JSON.stringify(payload),
+  });
+
+export const cancelAdminPreOrder = (token: string, id: string) =>
+  request<{ id: string; cancelled: boolean }>(`/admin/pre-orders/${id}`, {
+    token,
+    method: "DELETE",
+  });

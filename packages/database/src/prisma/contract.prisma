@@ -94,6 +94,23 @@ model OrderItem {
   @@map("order_items")
 }
 
+// Pre-orders table
+model PreOrder {
+  id            String   @id @default(uuid())
+  userId        String
+  productId     String
+  quantity      Int      @default(1)
+  status        String   @default("pending")
+  customerEmail String
+  customerName  String?
+  customerPhone String?
+  notes         String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @default(now())
+
+  @@map("pre_orders")
+}
+
 // Analytics table
 model Analytics {
   id              String    @id @default(uuid())

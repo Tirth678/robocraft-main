@@ -6,6 +6,7 @@ import { getAdminUserId } from './admin-auth';
 import { db } from './db';
 
 const port = Number(process.env.PORT ?? 3002);
+const emailServiceUrl = process.env.EMAIL_SERVICE_URL || 'http://localhost:3005';
 
 const allowedOrigins = [
   process.env.ADMIN_DASHBOARD_URL,
@@ -309,6 +310,104 @@ const app = new Elysia()
   })
 
   // ----------------------------------------------------
+  // PRE-ORDER APIS (Public - for customers)
+  // ----------------------------------------------------
+  .get('/pre-orders/product/:productId', async ({ params, set }) => {
+    // Check if product exists and is available for pre-order
+    const productResult = await db.query(
+      `SELECT * FROM inventory_items WHERE id = $1 AND deleted_at IS NULL`,
+      [params.productId],
+    );
+    if (!productResult.rowCount) {
+      set.status = 404;
+      return { success: false, error: 'Product not found' };
+    }
+    const product = productResult.rows[0];
+    return { success: true, data: { product: formatItem(product), canPreOrder: !product.is_active || product.quantity_on_hand === 0 } };
+  })
+  .post('/pre-orders', async ({ request, set }) => {
+    const preOrderInput = z.object({
+      productId: z.string().uuid(),
+      quantity: z.number().int().positive().default(1),
+      customerEmail: z.string().email(),
+      customerName: z.string().trim().min(1).max(200).optional(),
+      customerPhone: z.string().trim().max(20).optional(),
+      notes: z.string().trim().max(1000).optional(),
+    });
+    
+    const rawBody = await json(request);
+    const parsed = preOrderInput.safeParse(rawBody);
+    if (!parsed.success) return invalid(set, parsed.error.flatten());
+    
+    const input = parsed.data;
+    const client = await db.connect();
+    try {
+      await client.query('BEGIN');
+      
+      // Check product exists
+      const productResult = await client.query(
+        `SELECT * FROM inventory_items WHERE id = $1 AND deleted_at IS NULL`,
+        [input.productId],
+      );
+      if (!productResult.rowCount) {
+        await client.query('ROLLBACK');
+        set.status = 404;
+        return { success: false, error: 'Product not found' };
+      }
+      const product = productResult.rows[0];
+      
+      // Create pre-order
+      const preOrderId = randomUUID();
+      const preOrderResult = await client.query(
+        `INSERT INTO pre_orders (id, user_id, product_id, quantity, status, customer_email, customer_name, customer_phone, notes, created_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, now()) RETURNING *`,
+        [preOrderId, 'guest', input.productId, input.quantity, 'pending', input.customerEmail, input.customerName || null, input.customerPhone || null, input.notes || null],
+      );
+      
+      await client.query('COMMIT');
+      
+      // Send email notifications via email service
+      const preOrder = preOrderResult.rows[0];
+      const emailPayload = {
+        preOrder: {
+          id: preOrder.id,
+          productId: product.id,
+          productName: product.name,
+          productDescription: product.description,
+          productCategory: product.category,
+          productPrice: product.sale_price_minor ? product.sale_price_minor / 100 : 0,
+          productMrp: product.mrp_minor ? product.mrp_minor / 100 : 0,
+          productImage: Array.isArray(product.image_keys) && product.image_keys.length > 0 ? product.image_keys[0] : null,
+          quantity: preOrder.quantity,
+          totalAmount: (product.sale_price_minor ? product.sale_price_minor / 100 : 0) * preOrder.quantity,
+          customerEmail: preOrder.customer_email,
+          customerName: preOrder.customer_name,
+          customerPhone: preOrder.customer_phone,
+          notes: preOrder.notes,
+          createdAt: preOrder.created_at,
+        },
+      };
+      
+      // Fire and forget - don't wait for email service
+      fetch(`${emailServiceUrl}/send-pre-order-emails`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(emailPayload),
+      }).catch((err) => console.error('[INVENTORY] Failed to queue pre-order emails:', err));
+      
+      set.status = 201;
+      return { success: true, data: preOrderResult.rows[0] };
+    } catch (error) {
+      await client.query('ROLLBACK');
+      console.error('Pre-order creation error:', error);
+      set.status = 500;
+      return { success: false, error: 'Failed to create pre-order' };
+    } finally {
+      client.release();
+    }
+  })
+
+  // ----------------------------------------------------
   // ADMIN INVENTORY APIS
   // ----------------------------------------------------
   .get('/admin/inventory/items', async ({ request, set }) => {
@@ -390,6 +489,148 @@ const app = new Elysia()
       product: { id: r.item_id, sku: r.product_sku, name: r.product_name },
     }));
     return { success: true, data: movements };
+  })
+  .get('/admin/pre-orders', async ({ request, set }) => {
+    if (!await admin(request)) return forbidden(set);
+    const url = new URL(request.url);
+    const status = url.searchParams.get('status');
+    const limit = Math.min(Number(url.searchParams.get('limit')) || 50, 200);
+    const offset = Number(url.searchParams.get('offset')) || 0;
+    
+    let whereClause = 'WHERE 1=1';
+    const params: any[] = [];
+    let paramIndex = 1;
+    
+    if (status) {
+      whereClause += ` AND po.status = $${paramIndex}`;
+      params.push(status);
+      paramIndex++;
+    }
+    
+    params.push(limit);
+    paramIndex++;
+    params.push(offset);
+    paramIndex++;
+    
+    const result = await db.query(
+      `SELECT po.*, i.name as product_name, i.sku as product_sku, i.sale_price_minor, i.mrp_minor, i.image_keys
+       FROM pre_orders po
+       JOIN inventory_items i ON i.id = po.product_id
+       ${whereClause}
+       ORDER BY po.created_at DESC LIMIT $${paramIndex - 2} OFFSET $${paramIndex - 1}`,
+      params,
+    );
+    
+    const countResult = await db.query(
+      `SELECT COUNT(*)::int as total FROM pre_orders po ${whereClause}`,
+      params.slice(0, -2),
+    );
+    
+    const preOrders = result.rows.map((r) => ({
+      id: r.id,
+      productId: r.product_id,
+      quantity: r.quantity,
+      status: r.status,
+      customerEmail: r.customer_email,
+      customerName: r.customer_name,
+      customerPhone: r.customer_phone,
+      notes: r.notes,
+      createdAt: r.created_at,
+      updatedAt: r.updated_at,
+      product: {
+        id: r.product_id,
+        sku: r.product_sku,
+        name: r.product_name,
+        price: r.sale_price_minor ? r.sale_price_minor / 100 : 0,
+        mrp: r.mrp_minor ? r.mrp_minor / 100 : 0,
+        imageUrl: Array.isArray(r.image_keys) && r.image_keys.length > 0 ? r.image_keys[0] : null,
+      },
+      totalAmount: (r.sale_price_minor ? r.sale_price_minor / 100 : 0) * r.quantity,
+    }));
+    
+    return { success: true, data: preOrders, total: countResult.rows[0]?.total || 0 };
+  })
+  .get('/admin/pre-orders/:id', async ({ params, request, set }) => {
+    if (!await admin(request)) return forbidden(set);
+    const result = await db.query(
+      `SELECT po.*, i.name as product_name, i.sku as product_sku, i.sale_price_minor, i.mrp_minor, i.image_keys, i.description as product_description, i.category as product_category
+       FROM pre_orders po
+       JOIN inventory_items i ON i.id = po.product_id
+       WHERE po.id = $1`,
+      [params.id],
+    );
+    if (!result.rowCount) { set.status = 404; return { success: false, error: 'Pre-order not found' }; }
+    const r = result.rows[0];
+    return { success: true, data: {
+      id: r.id,
+      productId: r.product_id,
+      quantity: r.quantity,
+      status: r.status,
+      customerEmail: r.customer_email,
+      customerName: r.customer_name,
+      customerPhone: r.customer_phone,
+      notes: r.notes,
+      createdAt: r.created_at,
+      updatedAt: r.updated_at,
+      product: {
+        id: r.product_id,
+        sku: r.product_sku,
+        name: r.product_name,
+        description: r.product_description,
+        category: r.product_category,
+        price: r.sale_price_minor ? r.sale_price_minor / 100 : 0,
+        mrp: r.mrp_minor ? r.mrp_minor / 100 : 0,
+        imageUrl: Array.isArray(r.image_keys) && r.image_keys.length > 0 ? r.image_keys[0] : null,
+      },
+      totalAmount: (r.sale_price_minor ? r.sale_price_minor / 100 : 0) * r.quantity,
+    }};
+  })
+  .patch('/admin/pre-orders/:id', async ({ params, request, set }) => {
+    if (!await admin(request)) return forbidden(set);
+    const updateInput = z.object({
+      status: z.enum(['pending', 'confirmed', 'cancelled', 'fulfilled']).optional(),
+      customerName: z.string().trim().min(1).max(200).optional(),
+      customerPhone: z.string().trim().max(20).optional(),
+      notes: z.string().trim().max(1000).optional(),
+    });
+    
+    const rawBody = await json(request);
+    const parsed = updateInput.safeParse(rawBody);
+    if (!parsed.success) return invalid(set, parsed.error.flatten());
+    
+    const input = parsed.data;
+    const fields: Array<[string, unknown]> = [
+      ['status', input.status],
+      ['customer_name', input.customerName],
+      ['customer_phone', input.customerPhone],
+      ['notes', input.notes],
+    ].filter(([, value]) => value !== undefined) as Array<[string, unknown]>;
+    
+    if (!fields.length) return invalid(set, { formErrors: ['No editable fields supplied'] });
+    
+    const values = fields.map(([, value]) => value);
+    const assignments = fields.map(([column], index) => `${column} = $${index + 1}`);
+    
+    try {
+      const result = await db.query(
+        `UPDATE pre_orders SET ${assignments.join(', ')}, updated_at = now() WHERE id = $${values.length + 1} RETURNING *`,
+        [...values, params.id],
+      );
+      if (!result.rowCount) { set.status = 404; return { success: false, error: 'Pre-order not found' }; }
+      return { success: true, data: result.rows[0] };
+    } catch {
+      set.status = 422;
+      return { success: false, error: 'Invalid update' };
+    }
+  })
+  .delete('/admin/pre-orders/:id', async ({ params, request, set }) => {
+    if (!await admin(request)) return forbidden(set);
+    const result = await db.query(
+      `UPDATE pre_orders SET status = 'cancelled', updated_at = now() WHERE id = $1 RETURNING *`,
+      [params.id],
+    );
+    if (!result.rowCount) { set.status = 404; return { success: false, error: 'Pre-order not found' }; }
+    return { success: true, data: { id: params.id, cancelled: true } };
   })
   .post('/admin/inventory/items', async ({ request, set }) => {
     const userId = await admin(request);

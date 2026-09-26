@@ -14,12 +14,12 @@ import { hasBackendUrl } from "@/lib/backend";
 
 const Index = lazy(() => import("./pages/Index"));
 const Experience3D = lazy(() => import("./pages/Experience3D"));
-const KitsPage = lazy(() => import("./pages/KitsPage"));
 const AboutPage = lazy(() => import("./pages/AboutPage"));
 const SimpleAuthPage = lazy(() => import("./pages/SimpleAuthPage"));
 const AdminPage = lazy(() => import("./pages/AdminPage"));
 const AdminProductsPage = lazy(() => import("./pages/AdminProductsPage"));
 const AdminSalesPage = lazy(() => import("./pages/AdminSalesPage"));
+const AdminPreOrdersPage = lazy(() => import("./pages/AdminPreOrdersPage"));
 const InventoryAdminPage = lazy(() => import("./pages/InventoryAdminPage"));
 const CheckoutPage = lazy(() => import("./pages/CheckoutPage"));
 const TrackOrderPage = lazy(() => import("./pages/TrackOrderPage"));
@@ -46,7 +46,6 @@ const AnimatedRoutes = () => {
       <Routes location={location} key={location.pathname}>
         <Route path="/" element={wrap(<Index />)} />
         <Route path="/home" element={wrap(<Index />)}/>
-        <Route path="/kits" element={wrap(<KitsPage />)} />
         <Route path="/about" element={wrap(<AboutPage />)} />
         <Route path="/experience-3d" element={wrap(<Experience3D />)} />
         <Route path="/auth" element={wrap(<SimpleAuthPage initialMode="signup" />)} />
@@ -57,6 +56,7 @@ const AnimatedRoutes = () => {
         <Route path="/admin" element={wrap(<AdminPage />)} />
         <Route path="/admin/products" element={wrap(<AdminProductsPage />)} />
         <Route path="/admin/sales" element={wrap(<AdminSalesPage />)} />
+        <Route path="/admin/pre-orders" element={wrap(<AdminPreOrdersPage />)} />
         <Route path="/admin/inventory" element={wrap(<InventoryAdminPage />)} />
         <Route path="/checkout" element={wrap(<CheckoutPage />)} />
         <Route path="/track-order" element={wrap(<TrackOrderPage />)} />

@@ -2,12 +2,12 @@ import { createAuthClient } from "@neondatabase/auth";
 import { BetterAuthReactAdapter } from "@neondatabase/auth/react/adapters";
 import { setStoredAuth, clearStoredAuth, type StoredAuth } from "./auth";
 
+export const authServiceUrl =
+  import.meta.env.VITE_AUTH_SERVICE_URL || "http://localhost:3001";
+
 const neonAuthUrl =
   import.meta.env.VITE_NEON_AUTH_URL ||
   "https://ep-nameless-pine-b4l3jt2f.neonauth.c-6.us-east-2.aws.neon.tech/neondb/auth";
-
-const authServiceUrl =
-  import.meta.env.VITE_AUTH_SERVICE_URL || "http://localhost:3001";
 
 export const neonAuthClient = createAuthClient(neonAuthUrl, {
   adapter: BetterAuthReactAdapter(),
@@ -233,46 +233,4 @@ export const logout = async (): Promise<AuthResponse> => {
   }
 };
 
-/**
- * Verify session with the backend Auth Microservice (/me)
- */
-export const fetchBackendUser = async (token?: string, userEmail?: string) => {
-  try {
-    let bearerToken = token;
 
-    if (!bearerToken || bearerToken.includes("session")) {
-      const { data } = await neonAuthClient.token();
-      if (data?.token) {
-        bearerToken = data.token;
-      }
-    }
-
-    if (!bearerToken || bearerToken.includes("session")) {
-      return {
-        email: userEmail,
-        role: "user",
-      };
-    }
-
-    const res = await fetch(`${authServiceUrl}/me`, {
-      headers: {
-        Authorization: `Bearer ${bearerToken}`,
-      },
-    });
-
-    if (!res.ok) {
-      return {
-        email: userEmail,
-        role: "user",
-      };
-    }
-
-    const json = await res.json();
-    return json.user || { email: userEmail, role: "user" };
-  } catch {
-    return {
-      email: userEmail,
-      role: "user",
-    };
-  }
-};

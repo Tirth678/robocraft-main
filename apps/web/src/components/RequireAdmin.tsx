@@ -4,8 +4,9 @@ import { ShieldAlert } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 
 /**
- * Gates admin screens on the role returned by the backend `/auth/me` sync,
- * not on client-side Clerk metadata. The API enforces the same role again.
+ * Gates admin screens on the role returned by Neon Auth (proxied by
+ * `useAuth`). The API enforces the same role again. There are no hardcoded
+ * credentials on the server and no client-side role fallback.
  */
 const RequireAdmin = ({ children }: { children: ReactNode }) => {
   const { user, isAuthenticated, isLoading } = useAuth();

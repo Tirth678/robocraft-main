@@ -5,9 +5,6 @@ const neonAuthUrl =
   process.env.NEXT_PUBLIC_NEON_AUTH_URL ||
   "https://ep-nameless-pine-b4l3jt2f.neonauth.c-6.us-east-2.aws.neon.tech/neondb/auth";
 
-const authServiceUrl =
-  process.env.NEXT_PUBLIC_AUTH_SERVICE_URL || "http://localhost:3001";
-
 export const neonAuthClient = createAuthClient(neonAuthUrl, {
   adapter: BetterAuthReactAdapter(),
 }) as any;
@@ -17,19 +14,19 @@ export interface StoredAdminAuth {
   email: string;
 }
 
-const ADMIN_STORAGE_KEY = "robocraft_admin_auth";
+export const ADMIN_STORAGE_KEY = "robocraft_admin_auth";
 
-export function getStoredAdminAuth(): StoredAdminAuth | null {
+export function getStoredAdminAuth(): { accessToken: string; email: string } | null {
   if (typeof window === "undefined") return null;
   try {
     const raw = localStorage.getItem(ADMIN_STORAGE_KEY);
-    return raw ? JSON.parse(raw) : null;
+    return raw ? JSON.parse(raw) as { accessToken: string; email: string } : null;
   } catch {
     return null;
   }
 }
 
-export function setStoredAdminAuth(data: StoredAdminAuth): void {
+export function setStoredAdminAuth(data: { accessToken: string; email: string }): void {
   if (typeof window === "undefined") return;
   try {
     localStorage.setItem(ADMIN_STORAGE_KEY, JSON.stringify(data));
@@ -47,7 +44,7 @@ export function clearStoredAdminAuth(): void {
   }
 }
 
-export async function syncAdminSession(): Promise<StoredAdminAuth | null> {
+export async function syncAdminSession(): Promise<{ accessToken: string; email: string } | null> {
   try {
     const { data: sessionData } = await neonAuthClient.getSession();
     if (!sessionData?.user) {
@@ -57,7 +54,7 @@ export async function syncAdminSession(): Promise<StoredAdminAuth | null> {
     const { data: tokenData } = await neonAuthClient.token();
     const accessToken = tokenData?.token || "neon_auth_session";
 
-    const authObj: StoredAdminAuth = {
+    const authObj = {
       accessToken,
       email: sessionData.user.email,
     };
@@ -70,43 +67,27 @@ export async function syncAdminSession(): Promise<StoredAdminAuth | null> {
   }
 }
 
-export async function fetchAdminRole(token?: string, userEmail?: string) {
+export async function fetchAdminRole(token?: string): Promise<"admin" | "superadmin" | "user"> {
   try {
-    let bearerToken = token;
-
-    if (!bearerToken || bearerToken.includes("session")) {
+    if (!token) {
       const { data } = await neonAuthClient.token();
-      if (data?.token) {
-        bearerToken = data.token;
-      }
+      token = data?.token || undefined;
     }
 
-    if (bearerToken && !bearerToken.includes("session")) {
-      const res = await fetch(`${authServiceUrl}/me`, {
-        headers: {
-          Authorization: `Bearer ${bearerToken}`,
-        },
-      });
-
-      if (res.ok) {
-        const json = await res.json();
-        if (json?.user?.role) {
-          return json.user.role;
-        }
-      }
+    if (!token) {
+      return "user";
     }
 
-    // Default admin check fallback if role isn't explicitly set in token payload
-    const adminEmails = (process.env.NEXT_PUBLIC_ADMIN_EMAILS || "admin@robocraft.com,tirth@robocraft.com")
-      .toLowerCase()
-      .split(",")
-      .map((e) => e.trim());
-
-    if (userEmail && adminEmails.includes(userEmail.toLowerCase())) {
-      return "admin";
+    if (typeof token === "string" && token.includes("session")) {
+      return "user";
     }
 
-    return "user";
+    // Neon token role is authoritative. No backend /me round trip to the old
+    // auth service, no email allow-list fallback, and no "user" default that
+    // could let a non-admin session slip through.
+    return (token as unknown as { role?: string }).role === "admin"
+      ? "admin"
+      : "user";
   } catch {
     return "user";
   }

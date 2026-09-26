@@ -189,7 +189,7 @@ const app = new Elysia()
       },
       credentials: true,
       methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE', 'OPTIONS'],
-      allowedHeaders: ['Content-Type', 'Authorization', 'x-admin-user-id'],
+      allowedHeaders: ['Content-Type', 'Authorization'],
     }),
   )
   .get('/', () => ({

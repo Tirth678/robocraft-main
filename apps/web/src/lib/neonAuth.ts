@@ -2,9 +2,6 @@ import { createAuthClient } from "@neondatabase/auth";
 import { BetterAuthReactAdapter } from "@neondatabase/auth/react/adapters";
 import { setStoredAuth, clearStoredAuth, type StoredAuth } from "./auth";
 
-export const authServiceUrl =
-  import.meta.env.VITE_AUTH_SERVICE_URL || "http://localhost:3001";
-
 const neonAuthUrl =
   import.meta.env.VITE_NEON_AUTH_URL ||
   "https://ep-nameless-pine-b4l3jt2f.neonauth.c-6.us-east-2.aws.neon.tech/neondb/auth";

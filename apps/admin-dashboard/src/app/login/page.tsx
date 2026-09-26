@@ -65,7 +65,7 @@ export default function AdminLoginPage() {
         const token = authResult.data?.token || `neon_admin_${Date.now()}`;
         const userEmail = authResult.data?.user?.email || cleanEmail;
 
-        const userRole = await fetchAdminRole(token, userEmail);
+        const userRole = await fetchAdminRole(token);
 
         if (userRole !== 'admin' && userRole !== 'superadmin') {
           setErrorMessage('Access Denied: Account is not authorized for administrator access.');

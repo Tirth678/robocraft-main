@@ -50,7 +50,7 @@ function mapInventoryToFrontend(item: InventoryProduct): FrontendProduct {
 const ProductsPage = () => {
   const navigate = useNavigate();
   const { addToCart } = useCart();
-  const { token, isAuthenticated } = useAuth();
+  const { token, isAuthenticated, user } = useAuth();
 
   const [products, setProducts] = useState<FrontendProduct[]>(frontendProducts);
   const [loading, setLoading] = useState(true);
@@ -121,9 +121,15 @@ const ProductsPage = () => {
       return;
     }
     setPreOrderModalProduct(product);
+    
+    // Pre-populate form with user's authenticated information
+    const userName = user?.firstName && user?.lastName 
+      ? `${user.firstName} ${user.lastName}` 
+      : user?.email?.split('@')[0] || "";
+    
     setPreOrderForm({
-      name: "",
-      email: "",
+      name: userName,
+      email: user?.email || "",
       phone: "",
       quantity: 1,
       notes: "",
@@ -416,6 +422,11 @@ const ProductsPage = () => {
                     onChange={(e) => setPreOrderForm(prev => ({ ...prev, name: e.target.value }))}
                     className="w-full px-4 py-3 rounded-full border border-border bg-secondary font-body text-sm focus:outline-none focus:ring-2 focus:ring-accent"
                   />
+                  {user?.email && (
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Pre-filled from your account
+                    </p>
+                  )}
                 </div>
                 
                 <div>
@@ -424,9 +435,15 @@ const ProductsPage = () => {
                     type="email"
                     placeholder="john@example.com"
                     value={preOrderForm.email}
-                    onChange={(e) => setPreOrderForm(prev => ({ ...prev, email: e.target.value }))}
-                    className="w-full px-4 py-3 rounded-full border border-border bg-secondary font-body text-sm focus:outline-none focus:ring-2 focus:ring-accent"
+                    readOnly
+                    className="w-full px-4 py-3 rounded-full border border-border bg-muted font-body text-sm focus:outline-none focus:ring-2 focus:ring-accent opacity-70 cursor-not-allowed"
+                    title="Email is auto-filled from your account"
                   />
+                  {user?.email && (
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Auto-filled from your account (cannot be changed)
+                    </p>
+                  )}
                 </div>
                 
                 <div>

@@ -7,11 +7,14 @@ import {
   clearStoredAdminAuth,
   fetchAdminRole,
   neonAuthClient,
+  type StoredAdminAuth,
 } from "@/lib/neonAuth";
 
 export interface AdminUser {
   id: string;
   email: string;
+  firstName?: string;
+  lastName?: string;
   role: string;
   isAdmin: boolean;
 }
@@ -29,7 +32,7 @@ interface AuthContextType {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [storedAuth, setStoredAuth] = useState<{ accessToken: string; email: string } | null>(null);
+  const [storedAuth, setStoredAuth] = useState<StoredAdminAuth | null>(null);
   const [role, setRole] = useState<"admin" | "superadmin" | "user">("user");
   const [isLoading, setIsLoading] = useState<boolean>(true);
 
@@ -39,7 +42,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const activeSession = await syncAdminSession() || getStoredAdminAuth();
       if (activeSession?.email) {
         setStoredAuth(activeSession);
-        const userRole = await fetchAdminRole(activeSession.accessToken);
+        const userRole = await fetchAdminRole(activeSession.accessToken, activeSession.email);
         setRole(userRole);
       } else {
         setStoredAuth(null);
@@ -75,6 +78,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     ? {
         id: storedAuth.email,
         email: storedAuth.email,
+        firstName: storedAuth.firstName,
+        lastName: storedAuth.lastName,
         role,
         isAdmin,
       }

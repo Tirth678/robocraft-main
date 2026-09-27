@@ -57,22 +57,34 @@ export async function getAdminUserId(request: Request): Promise<string | null> {
     return null;
   }
 
-  // If the token payload declares an explicit admin role, it is sufficient for
-  // the caller to check the DB allow-list before returning it.
+  const email = (payload as { email?: unknown }).email;
+
+  // Explicit application-level admin role in JWT → fast path
   if (typeof role === 'string') {
     const normalized = role.toLowerCase();
     if (normalized === 'admin' || normalized === 'superadmin') {
       return sub;
     }
-    return null;
   }
 
-  // Otherwise, require a matching allow-listed admin identity in the DB.
+  // Configured admin emails allow-list fast path
+  const adminEmails = (process.env.ADMIN_EMAILS || 'admin@robocraft.com,tirth@robocraft.com')
+    .toLowerCase()
+    .split(',')
+    .map(e => e.trim());
+  if (typeof email === 'string' && adminEmails.includes(email.toLowerCase())) {
+    return sub;
+  }
+
+  // Require a matching allow-listed admin identity in the DB.
   try {
+    const emailParam = typeof email === 'string' ? email.toLowerCase() : '';
     const result = await db.query<{ auth_user_id: string }>(
       `SELECT auth_user_id FROM inventory_admins
-       WHERE auth_user_id = $1 AND revoked_at IS NULL`,
-      [sub],
+       WHERE (auth_user_id = $1 OR (email IS NOT NULL AND LOWER(email) = $2))
+         AND revoked_at IS NULL
+         AND (is_active IS NULL OR is_active = true)`,
+      [sub, emailParam],
     );
     if (result.rowCount) return sub;
   } catch {

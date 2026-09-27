@@ -111,6 +111,55 @@ model PreOrder {
   @@map("pre_orders")
 }
 
+// Inventory items table - matches the inventory service expectations
+model InventoryItem {
+  id               String   @id @default(uuid())
+  sku              String   @unique
+  name             String
+  description      String?
+  category         String?
+  imageKeys        Json     @default("[]") @map("image_keys")
+  mrpMinor         Int?     @map("mrp_minor")
+  salePriceMinor   Int?     @map("sale_price_minor")
+  quantityOnHand   Int      @default(0) @map("quantity_on_hand")
+  isActive         Boolean  @default(true) @map("is_active")
+  createdBy        String   @map("created_by")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @default(now()) @map("updated_at")
+  deletedAt        DateTime? @map("deleted_at")
+
+  @@map("inventory_items")
+}
+
+// Inventory stock movements table
+model InventoryStockMovement {
+  id               String   @id @default(uuid())
+  itemId           String   @map("item_id")
+  quantityDelta    Int      @map("quantity_delta")
+  quantityBefore   Int      @map("quantity_before")
+  quantityAfter    Int      @map("quantity_after")
+  reason           String
+  idempotencyKey   String   @unique @map("idempotency_key")
+  performedBy      String   @map("performed_by")
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  @@map("inventory_stock_movements")
+}
+
+// Inventory admins table - for admin authentication
+model InventoryAdmin {
+  id         String    @id @default(uuid())
+  authUserId String    @unique @map("auth_user_id")
+  email      String
+  role       String    @default("admin")
+  isActive   Boolean   @default(true) @map("is_active")
+  createdAt  DateTime  @default(now()) @map("created_at")
+  updatedAt  DateTime  @default(now()) @map("updated_at")
+  revokedAt  DateTime? @map("revoked_at")
+
+  @@map("inventory_admins")
+}
+
 // Analytics table
 model Analytics {
   id              String    @id @default(uuid())

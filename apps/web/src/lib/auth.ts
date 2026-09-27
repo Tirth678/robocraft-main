@@ -2,6 +2,9 @@ export type StoredAuth = {
   accessToken: string;
   refreshToken: string;
   email: string;
+  firstName?: string;
+  lastName?: string;
+  name?: string;
 };
 
 const AUTH_STORAGE_KEY = "robocraft-auth";

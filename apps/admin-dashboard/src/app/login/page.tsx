@@ -34,54 +34,24 @@ export default function AdminLoginPage() {
     setErrorMessage(null);
 
     try {
-      if (mode === 'signin') {
-        let authResult = await neonAuthClient.signIn.email({
-          email: cleanEmail,
-          password,
-        });
+      let userEmail = cleanEmail;
 
-        // If user account doesn't exist yet, attempt automatic signup for admin email
-        if (authResult.error) {
-          const signUpResult = await neonAuthClient.signUp.email({
-            email: cleanEmail,
-            password,
-            name: 'RoboCraft Admin',
-          });
+      if (mode === 'signup') {
+        // Enforce authorized admin emails on registration
+        const adminEmails = (
+          process.env.NEXT_PUBLIC_ADMIN_EMAILS ||
+          'admin@robocraft.com,tirth@robocraft.com'
+        )
+          .toLowerCase()
+          .split(',')
+          .map((item) => item.trim());
 
-          if (!signUpResult.error) {
-            authResult = await neonAuthClient.signIn.email({
-              email: cleanEmail,
-              password,
-            });
-          }
-        }
-
-        if (authResult.error && !authResult.data?.token) {
-          setErrorMessage(authResult.error.message || 'Invalid credentials. Please verify your email and password.');
+        if (!adminEmails.includes(cleanEmail)) {
+          setErrorMessage('Access Denied: This email address is not authorized for administrator access.');
           setSubmitting(false);
           return;
         }
 
-        const token = authResult.data?.token || `neon_admin_${Date.now()}`;
-        const userEmail = authResult.data?.user?.email || cleanEmail;
-
-        const userRole = await fetchAdminRole(token);
-
-        if (userRole !== 'admin' && userRole !== 'superadmin') {
-          setErrorMessage('Access Denied: Account is not authorized for administrator access.');
-          setSubmitting(false);
-          return;
-        }
-
-        setStoredAdminAuth({
-          accessToken: token,
-          email: userEmail,
-        });
-
-        await refreshSession();
-        router.push('/');
-      } else {
-        // Direct Sign Up mode
         const signUpResult = await neonAuthClient.signUp.email({
           email: cleanEmail,
           password,
@@ -89,26 +59,55 @@ export default function AdminLoginPage() {
         });
 
         if (signUpResult.error) {
-          setErrorMessage(signUpResult.error.message || 'Failed to create admin account.');
+          setErrorMessage(signUpResult.error.message || 'Failed to create administrator account.');
           setSubmitting(false);
           return;
         }
 
-        // Auto sign in after sign up
-        const signInResult = await neonAuthClient.signIn.email({
+        userEmail = signUpResult.data?.user?.email || cleanEmail;
+      } else {
+        const authResult = await neonAuthClient.signIn.email({
           email: cleanEmail,
           password,
         });
 
-        const token = signInResult.data?.token || `neon_admin_${Date.now()}`;
-        setStoredAdminAuth({
-          accessToken: token,
-          email: cleanEmail,
-        });
+        if (authResult.error || !authResult.data) {
+          setErrorMessage(
+            authResult.error?.message || 'Invalid credentials. Please verify your email and password.'
+          );
+          setSubmitting(false);
+          return;
+        }
 
-        await refreshSession();
-        router.push('/');
+        userEmail = authResult.data?.user?.email || cleanEmail;
       }
+
+      // Exchange session for JWT
+      const { data: tokenData } = await neonAuthClient.token();
+      const jwt = tokenData?.token;
+
+      if (!jwt || !jwt.includes('.')) {
+        setErrorMessage('Failed to obtain access token. Please try again.');
+        setSubmitting(false);
+        return;
+      }
+
+      // Verify the JWT role before granting access
+      const userRole = await fetchAdminRole(jwt, userEmail);
+
+      if (userRole !== 'admin' && userRole !== 'superadmin') {
+        setErrorMessage('Access Denied: This account is not authorized for administrator access.');
+        setSubmitting(false);
+        return;
+      }
+
+      setStoredAdminAuth({
+        accessToken: jwt,
+        email: userEmail,
+      });
+
+      await refreshSession();
+      router.push('/');
     } catch (err: unknown) {
       setErrorMessage(err instanceof Error ? err.message : 'An error occurred during authentication.');
     } finally {
@@ -126,7 +125,7 @@ export default function AdminLoginPage() {
           </div>
           <h1 className="text-2xl font-bold tracking-tight text-white">RoboCraft Admin Portal</h1>
           <p className="text-sm text-slate-400 mt-1">
-            {mode === 'signin' ? 'Sign in with administrator credentials' : 'Create a new admin account'}
+            {mode === 'signin' ? 'Sign in with your administrator credentials' : 'Register your administrator credentials'}
           </p>
         </div>
 
@@ -190,28 +189,33 @@ export default function AdminLoginPage() {
               ) : (
                 <>
                   <UserPlus className="w-4 h-4" />
-                  Register Admin Account
+                  Register Administrator
                   <ArrowRight className="w-4 h-4 ml-auto" />
                 </>
               )}
             </button>
           </form>
 
-          <div className="mt-6 pt-4 border-t border-slate-800 text-center flex justify-between items-center text-xs">
+          <div className="mt-6 pt-4 border-t border-slate-800 flex items-center justify-between text-xs">
             <button
               type="button"
               onClick={() => {
                 setMode(mode === 'signin' ? 'signup' : 'signin');
                 setErrorMessage(null);
               }}
-              className="text-indigo-400 hover:underline font-semibold"
+              className="text-indigo-400 hover:text-indigo-300 hover:underline font-semibold"
             >
-              {mode === 'signin' ? 'Need to register a new admin?' : 'Already registered? Sign In'}
+              {mode === 'signin' ? 'Need to register an admin account?' : 'Already have an admin account? Sign In'}
             </button>
-
-            <span className="text-[10px] text-slate-500 font-mono">Neon Auth</span>
+            <span className="text-[10px] text-slate-500 font-mono">
+              Neon Auth
+            </span>
           </div>
         </div>
+
+        <p className="text-center text-xs text-slate-600 mt-4">
+          Contact the system administrator if you need to be added to the allow-list.
+        </p>
       </div>
     </div>
   );

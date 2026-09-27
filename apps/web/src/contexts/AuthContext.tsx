@@ -63,6 +63,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setUser({
       id: storedAuth.email,
       email: storedAuth.email,
+      firstName: storedAuth.firstName,
+      lastName: storedAuth.lastName,
       role: inferredRole,
     });
   }, [storedAuth]);

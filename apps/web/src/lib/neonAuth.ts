@@ -36,6 +36,9 @@ export const syncNeonSession = async (): Promise<StoredAuth | null> => {
       accessToken,
       refreshToken: "",
       email: sessionData.user.email,
+      name: sessionData.user.name,
+      firstName: sessionData.user.firstName,
+      lastName: sessionData.user.lastName,
     };
 
     setStoredAuth(authObj);
@@ -75,6 +78,9 @@ export const registerWithEmail = async (
         accessToken: data.token,
         refreshToken: "",
         email: data.user.email || email,
+        name: data.user.name,
+        firstName: data.user.firstName,
+        lastName: data.user.lastName,
       });
     } else {
       await syncNeonSession();
@@ -117,6 +123,9 @@ export const loginWithEmail = async (
         accessToken: data.token,
         refreshToken: "",
         email: data.user.email || email,
+        name: data.user.name,
+        firstName: data.user.firstName,
+        lastName: data.user.lastName,
       });
     } else {
       await syncNeonSession();
@@ -194,6 +203,9 @@ export const handleOAuthCallback = async (): Promise<AuthResponse> => {
       accessToken,
       refreshToken: "",
       email: sessionData.user.email,
+      name: sessionData.user.name,
+      firstName: sessionData.user.firstName,
+      lastName: sessionData.user.lastName,
     });
 
     return {

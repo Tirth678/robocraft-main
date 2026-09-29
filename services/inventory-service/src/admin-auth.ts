@@ -26,11 +26,16 @@ if (jwksUrl && authBaseUrl) {
  * There is no fallback token, no custom header bypass, and no hardcoded admin
  * user. If the JWT cannot be verified, or no allow-listed admin role exists in
  * the payload, this returns `null` and the caller returns 401/403.
+ * 
+ * Status codes returned by endpoints using this function:
+ * - 403: Authorization header missing or JWT validation failed (null returned)
+ * - 403: Valid JWT but user not in admin list (null returned)
  */
 export async function getAdminUserId(request: Request): Promise<string | null> {
   const authorization = request.headers.get('authorization');
 
   if (!authorization?.startsWith('Bearer ')) {
+    console.warn('[INVENTORY-AUTH] Missing or invalid Authorization header');
     return null;
   }
 
@@ -39,6 +44,7 @@ export async function getAdminUserId(request: Request): Promise<string | null> {
   if (!jwks || !issuer) {
     // No Neon JWKS configured: there is nothing we can verify, so deny access.
     // Deployment must set NEON_AUTH_JWKS_URL and NEON_AUTH_BASE_URL.
+    console.error('[INVENTORY-AUTH] JWKS not configured - set NEON_AUTH_JWKS_URL and NEON_AUTH_BASE_URL');
     return null;
   }
 
@@ -46,23 +52,28 @@ export async function getAdminUserId(request: Request): Promise<string | null> {
   try {
     const { payload: p } = await jwtVerify(token, jwks, { issuer });
     payload = p;
-  } catch {
+    console.log('[INVENTORY-AUTH] JWT verified successfully');
+  } catch (err) {
+    console.warn('[INVENTORY-AUTH] JWT verification failed:', err instanceof Error ? err.message : 'Unknown error');
     return null;
   }
 
   const sub = (payload as { sub?: unknown }).sub;
   const role = (payload as { role?: unknown }).role;
+  const email = (payload as { email?: unknown }).email;
 
   if (typeof sub !== 'string' || sub.length === 0) {
+    console.warn('[INVENTORY-AUTH] Invalid or missing subject (sub) in JWT');
     return null;
   }
 
-  const email = (payload as { email?: unknown }).email;
+  console.log('[INVENTORY-AUTH] JWT payload:', { sub, role, email });
 
   // Explicit application-level admin role in JWT → fast path
   if (typeof role === 'string') {
     const normalized = role.toLowerCase();
     if (normalized === 'admin' || normalized === 'superadmin') {
+      console.log(`[INVENTORY-AUTH] Admin access granted via JWT role: ${normalized}`);
       return sub;
     }
   }
@@ -72,7 +83,9 @@ export async function getAdminUserId(request: Request): Promise<string | null> {
     .toLowerCase()
     .split(',')
     .map(e => e.trim());
+  
   if (typeof email === 'string' && adminEmails.includes(email.toLowerCase())) {
+    console.log(`[INVENTORY-AUTH] Admin access granted via email whitelist: ${email}`);
     return sub;
   }
 
@@ -86,10 +99,18 @@ export async function getAdminUserId(request: Request): Promise<string | null> {
          AND (is_active IS NULL OR is_active = true)`,
       [sub, emailParam],
     );
-    if (result.rowCount) return sub;
-  } catch {
+    
+    if (result.rowCount) {
+      console.log(`[INVENTORY-AUTH] Admin access granted via database lookup for ${email || sub}`);
+      return sub;
+    }
+    
+    console.warn(`[INVENTORY-AUTH] User not found in inventory_admins: ${email || sub}`);
+  } catch (err) {
     // If the table does not exist or the database is starting up, fail closed.
+    console.error('[INVENTORY-AUTH] Database query failed:', err instanceof Error ? err.message : 'Unknown error');
   }
 
+  console.warn('[INVENTORY-AUTH] Access denied - no admin authorization found');
   return null;
 }

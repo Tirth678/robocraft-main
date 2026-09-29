@@ -17,6 +17,7 @@
       "name": "admin-dashboard",
       "version": "1.0.0",
       "dependencies": {
+        "@imagekit/next": "^2.1.6",
         "@neondatabase/auth": "^0.5.0-beta",
         "lucide-react": "^1.48.0",
         "next": "^14.2.0",
@@ -584,6 +585,10 @@
     "@humanwhocodes/object-schema": ["@humanwhocodes/object-schema@2.0.3", "", {}, "sha512-93zYdMES/c1D69yZiKDBj0V24vqNzB/koF26KPaagAfd3P/4gUlh3Dys5ogAK+Exi9QyzlD8x/08Zt7wIKcDcA=="],
 
     "@humanwhocodes/retry": ["@humanwhocodes/retry@0.4.3", "", {}, "sha512-bV0Tgo9K4hfPCek+aMAn81RppFKv2ySDQeMoSZuvTASywNTnVJCArCZE2FWqpvIatKu7VMRLWlR1EazvVhDyhQ=="],
+
+    "@imagekit/javascript": ["@imagekit/javascript@5.5.1", "", {}, "sha512-eGEbZGKCqX/rC1iwceb1pLg5oHJhGkH68+i6JhFFSDktrdCMC/475a5R0Obtnk6IbIc4eV+1vynkK4WZFeLWEQ=="],
+
+    "@imagekit/next": ["@imagekit/next@2.1.6", "", { "dependencies": { "@imagekit/javascript": "^5.5.0" }, "peerDependencies": { "next": ">= 13" } }, "sha512-VQH89cgppjscajV1R+ZN5cydq3NFyiL/5ytYZrZTiWIappIwW2DG2juHjRVIIZlz0Rc7nLZ5qfNC2GNkzjQiLQ=="],
 
     "@img/colour": ["@img/colour@1.1.0", "", {}, "sha512-Td76q7j57o/tLVdgS746cYARfSyxk8iEfRxewL9h4OMzYhbW4TAcppl0mT4eyqXddh6L/jwoM75mo7ixa/pCeQ=="],
 

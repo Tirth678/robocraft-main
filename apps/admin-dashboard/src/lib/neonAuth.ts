@@ -82,6 +82,12 @@ export async function syncAdminSession(): Promise<StoredAdminAuth | null> {
 const INVENTORY_SERVICE_URL =
   process.env.NEXT_PUBLIC_INVENTORY_SERVICE_URL || "http://localhost:3002";
 
+export interface AdminRoleResult {
+  role: "admin" | "superadmin" | "user";
+  statusCode?: number;
+  error?: string;
+}
+
 /**
  * Verify admin role by probing the inventory service with the JWT.
  *
@@ -90,8 +96,12 @@ const INVENTORY_SERVICE_URL =
  * is the `inventory_admins` allow-list checked server-side by the inventory
  * service.
  *
- * A 200 response means the JWT is valid AND the user is in inventory_admins.
- * Anything else (401, 403, network error) means not an admin.
+ * Status codes:
+ * - 200: Valid admin access
+ * - 401: Invalid or expired token
+ * - 403: Valid token but not authorized as admin
+ * - 500+: Server error
+ * - Network error: Falls back to token payload check
  */
 export async function fetchAdminRole(
   token?: string,
@@ -104,17 +114,48 @@ export async function fetchAdminRole(
     }
 
     // No token or non-JWT string → not an admin.
-    if (!token || !token.includes(".")) return "user";
+    if (!token || !token.includes(".")) {
+      console.warn("[AUTH] No valid JWT token available");
+      return "user";
+    }
 
     // 1. Probe the inventory service with the JWT
     try {
       const res = await fetch(
         `${INVENTORY_SERVICE_URL}/admin/inventory/items?limit=1`,
-        { headers: { Authorization: `Bearer ${token}` } }
+        { 
+          headers: { Authorization: `Bearer ${token}` },
+          signal: AbortSignal.timeout(5000) // 5 second timeout
+        }
       );
-      if (res.status === 200) return "admin";
-    } catch {
-      // Inventory service network error - fall through to token payload check
+      
+      console.log(`[AUTH] Inventory service probe status: ${res.status}`);
+      
+      if (res.status === 200) {
+        console.log("[AUTH] Admin access verified via inventory service");
+        return "admin";
+      }
+      
+      if (res.status === 401) {
+        console.warn("[AUTH] Token rejected by inventory service (401)");
+        throw new Error("Authentication token is invalid or expired");
+      }
+      
+      if (res.status === 403) {
+        console.warn("[AUTH] Access forbidden by inventory service (403) - not in admin list");
+        // Continue to fallback checks
+      }
+      
+      if (res.status >= 500) {
+        console.error(`[AUTH] Inventory service error (${res.status})`);
+        // Continue to fallback checks
+      }
+    } catch (err) {
+      if (err instanceof Error && err.message.includes("invalid or expired")) {
+        throw err; // Re-throw auth errors
+      }
+      console.warn("[AUTH] Inventory service unreachable, using fallback validation:", err);
+      // Network error or timeout - fall through to token payload check
     }
 
     // 2. Decode the JWT payload to check role and email
@@ -122,7 +163,14 @@ export async function fetchAdminRole(
       const parts = token.split(".");
       if (parts.length === 3) {
         const payload = JSON.parse(atob(parts[1]));
+        console.log("[AUTH] JWT payload decoded:", { 
+          role: payload.role, 
+          email: payload.email,
+          sub: payload.sub 
+        });
+        
         if (payload.role === "admin" || payload.role === "superadmin") {
+          console.log(`[AUTH] Admin access granted via JWT role: ${payload.role}`);
           return payload.role;
         }
 
@@ -136,11 +184,14 @@ export async function fetchAdminRole(
           .map((e) => e.trim());
 
         if (email && adminEmails.includes(email)) {
+          console.log(`[AUTH] Admin access granted via email whitelist: ${email}`);
           return "admin";
         }
+        
+        console.warn(`[AUTH] Email ${email} not in whitelist:`, adminEmails);
       }
-    } catch {
-      // Failed to parse token payload
+    } catch (err) {
+      console.error("[AUTH] Failed to parse JWT payload:", err);
     }
 
     // 3. Fallback: check userEmail directly against adminEmails
@@ -154,12 +205,18 @@ export async function fetchAdminRole(
         .map((e) => e.trim());
 
       if (adminEmails.includes(userEmail.toLowerCase().trim())) {
+        console.log(`[AUTH] Admin access granted via direct email check: ${userEmail}`);
         return "admin";
       }
     }
 
+    console.warn("[AUTH] No admin authorization found, returning 'user' role");
     return "user";
-  } catch {
+  } catch (err) {
+    console.error("[AUTH] Error in fetchAdminRole:", err);
+    if (err instanceof Error && err.message.includes("invalid or expired")) {
+      throw err; // Re-throw auth errors to be caught by login handler
+    }
     return "user";
   }
 }

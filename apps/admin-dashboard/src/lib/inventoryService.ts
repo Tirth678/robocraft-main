@@ -29,6 +29,28 @@ export interface CouponItem {
   created_at: string;
 }
 
+export interface PreOrderItem {
+  id: string;
+  productId: string;
+  quantity: number;
+  status: 'pending' | 'confirmed' | 'cancelled' | 'fulfilled';
+  customerEmail: string;
+  customerName: string | null;
+  customerPhone: string | null;
+  notes: string | null;
+  createdAt: string;
+  updatedAt: string;
+  product: {
+    id: string;
+    sku: string;
+    name: string;
+    price: number;
+    mrp: number;
+    imageUrl: string | null;
+  };
+  totalAmount: number;
+}
+
 export interface CreateItemInput {
   sku: string;
   name: string;
@@ -139,5 +161,48 @@ export async function createInventoryCoupon(
   return request<CouponItem>('/admin/inventory/coupons', token, {
     method: 'POST',
     body: JSON.stringify(input),
+  });
+}
+
+export async function fetchPreOrders(
+  token: string | null,
+  query?: { status?: string; limit?: number; offset?: number; search?: string }
+): Promise<{ items: PreOrderItem[]; total: number }> {
+  const params = new URLSearchParams();
+  if (query?.status) params.set('status', query.status);
+  if (query?.limit) params.set('limit', query.limit.toString());
+  if (query?.offset) params.set('offset', query.offset.toString());
+  if (query?.search) params.set('search', query.search);
+  
+  const queryString = params.toString();
+  return request<{ items: PreOrderItem[]; total: number }>(
+    `/admin/pre-orders${queryString ? `?${queryString}` : ''}`,
+    token
+  );
+}
+
+export async function fetchPreOrder(token: string | null, id: string): Promise<PreOrderItem> {
+  return request<PreOrderItem>(`/admin/pre-orders/${id}`, token);
+}
+
+export async function updatePreOrder(
+  token: string | null,
+  id: string,
+  input: {
+    status?: 'pending' | 'confirmed' | 'cancelled' | 'fulfilled';
+    customerName?: string;
+    customerPhone?: string;
+    notes?: string;
+  }
+): Promise<PreOrderItem> {
+  return request<PreOrderItem>(`/admin/pre-orders/${id}`, token, {
+    method: 'PATCH',
+    body: JSON.stringify(input),
+  });
+}
+
+export async function cancelPreOrder(token: string | null, id: string): Promise<PreOrderItem> {
+  return request<PreOrderItem>(`/admin/pre-orders/${id}`, token, {
+    method: 'DELETE',
   });
 }

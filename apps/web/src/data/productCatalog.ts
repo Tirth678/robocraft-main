@@ -24,6 +24,10 @@ export interface FrontendProduct {
   badgeColor: string;
   available: boolean;
   isCustom?: boolean;
+  /** Digital goods download instantly instead of shipping. */
+  isDigital?: boolean;
+  /** Raw inventory id, without the `inv-` display prefix. */
+  inventoryId?: string;
   createdAt?: string;
 }
 

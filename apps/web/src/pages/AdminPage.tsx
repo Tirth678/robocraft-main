@@ -170,10 +170,10 @@ const AdminDashboardContent = () => {
                     </div>
                     <span
                       className={`text-sm font-black ${
-                        product.stock === 0 ? "text-red-400" : "text-yellow-400"
+                        (product.stock ?? 0) === 0 ? "text-red-400" : "text-yellow-400"
                       }`}
                     >
-                      {product.stock}
+                      {product.stock ?? 0}
                     </span>
                   </div>
                 ))}

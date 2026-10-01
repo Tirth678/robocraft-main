@@ -1,0 +1,26 @@
+{
+  "name": "api-gateway",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Edge router that fronts the RoboCraft microservices for the storefront.",
+  "scripts": {
+    "dev": "bun --env-file=../../.env run --watch src/index.ts",
+    "build": "bun build src/index.ts --outdir dist --target bun",
+    "start": "bun --env-file=../../.env dist/index.js",
+    "lint": "eslint src --ext .ts,.tsx",
+    "smoke:gateway": "bun --env-file=../../.env run src/__smoke__/gateway.smoke.ts",
+    "clean": "rm -rf dist node_modules"
+  },
+  "dependencies": {
+    "@elysiajs/cors": "^1.4.2",
+    "elysia": "^1.0.0"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.1.0",
+    "postgres": "^3.4.5",
+    "shared-utils": "*",
+    "typescript": "^5.4.5",
+    "eslint": "^8.57.0"
+  }
+}

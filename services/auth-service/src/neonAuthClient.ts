@@ -1,5 +1,3 @@
-import { verifyNeonAccessToken } from './auth';
-
 export interface NeonAuthSession {
   user?: { id?: string; email?: string; name?: string };
 }
@@ -7,12 +5,10 @@ export interface NeonAuthSession {
 export interface NeonAuthClient {
   getSession: () => Promise<{ data: NeonAuthSession | null; error?: { message?: string } }>;
   token: () => Promise<{ data: { token?: string } | null; error?: { message?: string } }>;
-  signUp: {
-    email: (input: { email: string; password: string; name?: string }) => Promise<{
-      data?: { token?: string; user?: { id: string; email: string; name?: string } };
-      error?: { message?: string };
-    }>;
-  };
+  signUp: (input: { email: string; password: string; name?: string }) => Promise<{
+    data?: { token?: string; user?: { id: string; email: string; name?: string } };
+    error?: { message?: string };
+  }>;
   signIn: (
     input: { email: string; password: string } | { provider: string; callbackURL?: string }
   ) => Promise<{
@@ -54,7 +50,7 @@ export const neonAuthClient: NeonAuthClient = {
     }
   },
 
-  async signUp({ email, password, name }: { email: string; password: string; name?: string }) {
+  async signUp(_input: { email: string; password: string; name?: string }) {
     // Sign-up is not handled by the auth-service; delegate to Neon Auth directly.
     return {
       data: undefined,

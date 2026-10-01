@@ -278,17 +278,23 @@ const InventoryAdminContent = () => {
                     <div className="text-right">
                       <p
                         className={`text-xl font-black ${
-                          product.stock === 0
-                            ? "text-red-400"
-                            : product.stock <= LOW_STOCK_AT
-                              ? "text-yellow-400"
-                              : "text-white"
+                          product.stock === null
+                            ? "text-emerald-400"
+                            : product.stock === 0
+                              ? "text-red-400"
+                              : product.stock <= LOW_STOCK_AT
+                                ? "text-yellow-400"
+                                : "text-white"
                         }`}
                       >
-                        {product.stock}
+                        {product.stock === null ? "∞" : product.stock}
                       </p>
                       <p className="text-[10px] font-bold uppercase tracking-widest text-white/30">
-                        on hand
+                        {product.kind === "digital"
+                          ? product.stock === null
+                            ? "instant"
+                            : "keys left"
+                          : "on hand"}
                       </p>
                     </div>
 

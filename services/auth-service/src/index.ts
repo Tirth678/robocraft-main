@@ -14,33 +14,36 @@ export type AuthStatus =
   | { status: 'authenticated'; email: string; role?: string }
   | { status: 'anonymous'; error?: string };
 
-/** Sync the current Neon Auth session into a normalized status object. */
+/**
+ * Resolve the caller's identity from the Bearer JWT alone.
+ *
+ * The server has no session cookie — only the browser does — so verifying the
+ * JWT is the single source of truth here. The JWT `role` claim is a generic
+ * auth state (e.g. `authenticated`), not an application role, so the admin
+ * allow-list (same env used by inventory-service) decides the effective role.
+ */
+const adminEmails = new Set(
+  (process.env.ADMIN_EMAILS || 'admin@robocraft.com,tirth@robocraft.com')
+    .toLowerCase()
+    .split(',')
+    .map((email) => email.trim())
+    .filter(Boolean),
+);
+
 export const getAuthStatus = async (request: Request): Promise<AuthStatus> => {
   try {
-    const { data: sessionData } = await neonAuthClient.getSession();
-
-    if (!sessionData?.user) {
+    const payload = await verifyNeonAccessToken(request);
+    if (!payload) {
       return { status: 'anonymous' };
     }
 
-    let role: string | undefined;
+    const email = typeof payload.email === 'string' ? payload.email : '';
+    const claimedRole = typeof payload.role === 'string' ? payload.role : undefined;
+    const isAdminClaim = claimedRole === 'admin' || claimedRole === 'superadmin';
+    const role =
+      isAdminClaim || (email && adminEmails.has(email.toLowerCase())) ? 'admin' : 'user';
 
-    // Expose the server-verified role from the JWT payload.
-    try {
-      const payload = await verifyNeonAccessToken(request);
-      if (payload && typeof payload.role === 'string') {
-        role = payload.role;
-      }
-    } catch {
-      // Keep the status anonymous on auth error rather than surfacing a
-      // partially-verified role.
-    }
-
-    return {
-      status: 'authenticated',
-      email: sessionData.user.email,
-      role,
-    };
+    return { status: 'authenticated', email, role };
   } catch (err) {
     return {
       status: 'anonymous',
@@ -87,7 +90,7 @@ const app = new Elysia()
     };
   })
 
-  .post('/logout', async ({ set }) => {
+  .post('/logout', async () => {
     try {
       await neonAuthClient.signOut();
       return { success: true, message: 'Signed out' };

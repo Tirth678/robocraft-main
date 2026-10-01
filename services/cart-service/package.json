@@ -5,9 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "bun --env-file=../../.env run --watch src/index.ts",
-    "build": "bun build src/index.ts --outdir dist",
+    "build": "bun build src/index.ts --outdir dist --target bun",
     "start": "bun dist/index.js",
-    "lint": "eslint src",
+    "lint": "eslint src --ext .ts,.tsx",
     "clean": "rm -rf dist node_modules"
   },
   "dependencies": {

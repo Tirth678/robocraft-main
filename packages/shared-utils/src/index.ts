@@ -136,3 +136,8 @@ export function handleError(error: unknown): { message: string; statusCode: numb
     statusCode: 500,
   };
 }
+
+// Authentication helpers shared by every service
+export { verifyNeonRequest, type AuthenticatedUser } from './neonAuth';
+export { signServiceRequest, verifyServiceRequest } from './serviceAuth';
+

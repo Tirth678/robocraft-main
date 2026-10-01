@@ -3,6 +3,10 @@
   "compilerOptions": {
     "jsx": "preserve",
     "incremental": true,
+    "rootDir": ".",
+    "composite": false,
+    "declaration": false,
+    "declarationMap": false,
     "plugins": [
       {
         "name": "next"

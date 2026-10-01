@@ -16,6 +16,8 @@ import {
   RefreshCw,
   ToggleLeft,
   ToggleRight,
+  KeyRound,
+  FileDown,
 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
@@ -27,10 +29,19 @@ import {
   attachAsset,
   createProduct,
   deleteAsset,
+  deleteDigitalAsset,
   deleteProduct,
   fetchAdminProducts,
+  fetchDigitalAssets,
+  fetchLicenseKeys,
+  importLicenseKeys,
+  resolveMediaUrl,
   updateProduct,
   uploadAssets,
+  uploadDigitalAssets,
+  type DeliveryMode,
+  type DigitalAsset,
+  type DigitalLicenseKey,
   type InventoryProduct,
   type ProductKind,
   type ProductQuery,
@@ -43,6 +54,9 @@ type ProductFormData = {
   price: number;
   category: string;
   kind: ProductKind;
+  deliveryMode: DeliveryMode;
+  downloadLimit: number;
+  digitalInstructions: string;
   stock: number;
   imageUrl: string;
   isListed: boolean;
@@ -55,6 +69,9 @@ const emptyForm: ProductFormData = {
   price: 0,
   category: "",
   kind: "physical",
+  deliveryMode: "files",
+  downloadLimit: 0,
+  digitalInstructions: "",
   stock: 0,
   imageUrl: "",
   isListed: true,
@@ -83,6 +100,13 @@ const AdminProductsContent = () => {
   const [form, setForm] = useState<ProductFormData>(emptyForm);
   const [saving, setSaving] = useState(false);
   const [uploadingFor, setUploadingFor] = useState<string | null>(null);
+
+  // Digital deliverables / license keys panel
+  const [digitalFor, setDigitalFor] = useState<string | null>(null);
+  const [digitalAssets, setDigitalAssets] = useState<DigitalAsset[]>([]);
+  const [digitalKeys, setDigitalKeys] = useState<DigitalLicenseKey[]>([]);
+  const [keyText, setKeyText] = useState("");
+  const [digitalBusy, setDigitalBusy] = useState<string | null>(null);
 
   const loadProducts = useCallback(async () => {
     if (!token) return;
@@ -113,7 +137,10 @@ const AdminProductsContent = () => {
         price: product.price,
         category: product.category ?? "",
         kind: product.kind,
-        stock: product.stock,
+        deliveryMode: product.deliveryMode ?? "files",
+        downloadLimit: product.downloadLimit ?? 0,
+        digitalInstructions: product.digitalInstructions ?? "",
+        stock: product.stock ?? 0,
         imageUrl: product.imageUrl ?? "",
         isListed: product.isListed,
       });
@@ -148,6 +175,15 @@ const AdminProductsContent = () => {
         price: form.price,
         category: form.category.trim() || undefined,
         kind: form.kind,
+        // Digital fields only apply to digital goods; `downloadLimit` 0 means
+        // "no limit" and is sent as null (an empty instruction clears the field).
+        ...(form.kind === "digital"
+          ? {
+              deliveryMode: form.deliveryMode,
+              downloadLimit: form.downloadLimit > 0 ? form.downloadLimit : null,
+              digitalInstructions: form.digitalInstructions.trim(),
+            }
+          : {}),
         imageUrl: form.imageUrl.trim() || undefined,
         isListed: form.isListed,
       };
@@ -225,6 +261,77 @@ const AdminProductsContent = () => {
     }
   };
 
+  const loadDigitalDetails = useCallback(
+    async (product: InventoryProduct) => {
+      if (!token) return;
+      try {
+        const [assets, keys] = await Promise.all([
+          fetchDigitalAssets(token, product.id),
+          fetchLicenseKeys(token, product.id),
+        ]);
+        setDigitalAssets(assets);
+        setDigitalKeys(keys);
+      } catch (error) {
+        setDigitalAssets([]);
+        setDigitalKeys([]);
+        toast.error(getSafeErrorMessage(error, "Failed to load digital details"));
+      }
+    },
+    [token]
+  );
+
+  const toggleDigitalManager = (product: InventoryProduct) => {
+    const next = digitalFor === product.id ? null : product.id;
+    setDigitalFor(next);
+    setKeyText("");
+    if (next) void loadDigitalDetails(product);
+  };
+
+  const handleUploadDeliverables = async (product: InventoryProduct, files: FileList | null) => {
+    if (!token || !files || files.length === 0) return;
+    setDigitalBusy(product.id);
+    try {
+      const uploaded = await uploadDigitalAssets(token, product.id, Array.from(files).slice(0, 5));
+      toast.success(`Uploaded ${uploaded.length} deliverable(s)`);
+      await loadDigitalDetails(product);
+      void loadProducts();
+    } catch (error) {
+      toast.error(getSafeErrorMessage(error, "Deliverable upload failed"));
+    } finally {
+      setDigitalBusy(null);
+    }
+  };
+
+  const handleDeleteDeliverable = async (assetId: string) => {
+    if (!token) return;
+    if (!confirm("Remove this deliverable? Downloads already sold keep working.")) return;
+    try {
+      await deleteDigitalAsset(token, assetId);
+      toast.success("Deliverable removed");
+      const product = products.find((item) => item.id === digitalFor);
+      if (product) await loadDigitalDetails(product);
+      void loadProducts();
+    } catch (error) {
+      toast.error(getSafeErrorMessage(error, "Failed to remove deliverable"));
+    }
+  };
+
+  const handleImportKeys = async (product: InventoryProduct) => {
+    if (!token || !keyText.trim()) return;
+    setDigitalBusy(product.id);
+    try {
+      const result = await importLicenseKeys(token, product.id, keyText);
+      toast.success(`Added ${result.added} key(s) · ${result.duplicates} duplicate(s) skipped`);
+      setKeyText("");
+      await loadDigitalDetails(product);
+      void loadProducts();
+    } catch (error) {
+      toast.error(getSafeErrorMessage(error, "Failed to import keys"));
+    } finally {
+      setDigitalBusy(null);
+    }
+  };
+
   const handleMakePrimary = async (product: InventoryProduct, publicId: string) => {
     if (!token) return;
     try {
@@ -238,9 +345,9 @@ const AdminProductsContent = () => {
 
   const handleDeleteAsset = async (publicId: string) => {
     if (!token) return;
-    if (!confirm("Delete this image from Cloudinary?")) return;
+    if (!confirm("Delete this image from storage?")) return;
     try {
-      await deleteAsset(token, publicId);
+      await deleteAsset(token, publicId, { purge: true });
       toast.success("Image deleted");
       loadProducts();
     } catch (error) {
@@ -332,7 +439,7 @@ const AdminProductsContent = () => {
                   <div className="h-16 w-16 shrink-0 overflow-hidden rounded-xl border border-white/10 bg-white/5">
                     {product.imageUrl ? (
                       <img
-                        src={product.imageUrl}
+                        src={resolveMediaUrl(product.imageUrl)}
                         alt={product.name}
                         className="h-full w-full object-cover"
                       />
@@ -366,18 +473,37 @@ const AdminProductsContent = () => {
                     </p>
                     <p
                       className={`text-xs font-bold ${
-                        product.stock === 0
-                          ? "text-red-400"
-                          : product.stock <= 5
-                            ? "text-yellow-400"
-                            : "text-white/40"
+                        product.stock === null
+                          ? "text-emerald-400"
+                          : product.stock === 0
+                            ? "text-red-400"
+                            : product.stock <= 5
+                              ? "text-yellow-400"
+                              : "text-white/40"
                       }`}
                     >
-                      {product.stock} in stock
+                      {product.kind === "digital"
+                        ? product.stock === null
+                          ? "instant download"
+                          : `${product.stock} key${product.stock === 1 ? "" : "s"} left`
+                        : `${product.stock ?? 0} in stock`}
                     </p>
                   </div>
 
                   <div className="flex items-center gap-1">
+                    {product.kind === "digital" && (
+                      <button
+                        onClick={() => toggleDigitalManager(product)}
+                        title="Manage deliverables and license keys"
+                        className={`rounded-xl p-2.5 transition-all ${
+                          digitalFor === product.id
+                            ? "bg-white/10 text-white"
+                            : "text-white/40 hover:bg-white/5 hover:text-white"
+                        }`}
+                      >
+                        <KeyRound size={16} />
+                      </button>
+                    )}
                     <label
                       className="cursor-pointer rounded-xl p-2.5 text-white/40 hover:bg-white/5 hover:text-white transition-all"
                       title="Upload images"
@@ -449,6 +575,86 @@ const AdminProductsContent = () => {
                         </div>
                       </div>
                     ))}
+                  </div>
+                )}
+
+                {digitalFor === product.id && (
+                  <div className="mt-4 space-y-4 rounded-xl border border-white/10 bg-white/[0.02] p-4">
+                    <div className="flex items-center justify-between">
+                      <p className="text-xs font-black uppercase tracking-widest text-white/40">
+                        Digital deliverables
+                      </p>
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-white/30">
+                        {(product.deliveryMode ?? "files").replace("_", " ")}
+                      </span>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-3">
+                      <label className="cursor-pointer rounded-xl border border-white/10 px-3 py-2 text-xs font-bold text-white/60 hover:bg-white/5 hover:text-white transition-all">
+                        {digitalBusy === product.id ? "Uploading…" : "Upload files"}
+                        <input
+                          type="file"
+                          multiple
+                          className="hidden"
+                          onChange={(event) => handleUploadDeliverables(product, event.target.files)}
+                        />
+                      </label>
+                      <span className="text-xs text-white/40">
+                        {digitalAssets.length} file(s) ·{" "}
+                        {digitalKeys.filter((key) => key.status === "available").length} key(s)
+                        available
+                      </span>
+                    </div>
+
+                    {digitalAssets.length > 0 && (
+                      <ul className="space-y-2">
+                        {digitalAssets.map((asset) => (
+                          <li
+                            key={asset.id}
+                            className="flex items-center gap-3 rounded-lg bg-white/[0.03] px-3 py-2"
+                          >
+                            <FileDown size={14} className="shrink-0 text-white/40" />
+                            <span className="flex-1 truncate text-xs">{asset.fileName}</span>
+                            <span className="text-[10px] text-white/30">
+                              {(asset.bytes / 1024).toFixed(0)} KB
+                            </span>
+                            <button
+                              onClick={() => handleDeleteDeliverable(asset.id)}
+                              title="Remove deliverable"
+                              className="text-red-400/60 hover:text-red-400"
+                            >
+                              <Trash2 size={13} />
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+
+                    <div>
+                      <label className="mb-2 block text-xs font-black uppercase tracking-widest text-white/40">
+                        License keys (one per line)
+                      </label>
+                      <textarea
+                        rows={3}
+                        value={keyText}
+                        onChange={(event) => setKeyText(event.target.value)}
+                        placeholder={"ROBO-XXXX-YYYY\nROBO-ZZZZ-WWWW"}
+                        className={inputClass}
+                      />
+                      <div className="mt-2 flex items-center gap-3">
+                        <button
+                          onClick={() => handleImportKeys(product)}
+                          disabled={!keyText.trim() || digitalBusy === product.id}
+                          className="rounded-xl bg-white px-4 py-2 text-xs font-black text-black transition-all hover:bg-white/80 disabled:opacity-40"
+                        >
+                          Import keys
+                        </button>
+                        <span className="text-xs text-white/40">
+                          {digitalKeys.filter((key) => key.status === "available").length} available ·{" "}
+                          {digitalKeys.filter((key) => key.status === "assigned").length} assigned
+                        </span>
+                      </div>
+                    </div>
                   </div>
                 )}
               </div>
@@ -578,21 +784,94 @@ const AdminProductsContent = () => {
                   </div>
                   <div>
                     <label className="mb-2 block text-xs font-black uppercase tracking-widest text-white/40">
-                      {editing ? "Stock (managed in Inventory)" : "Opening stock"}
+                      {form.kind === "digital"
+                        ? "Stock (from license keys)"
+                        : editing
+                          ? "Stock (managed in Inventory)"
+                          : "Opening stock"}
                     </label>
                     <input
                       type="number"
                       min="0"
-                      disabled={Boolean(editing)}
+                      disabled={Boolean(editing) || form.kind === "digital"}
                       value={form.stock || ""}
                       onChange={(event) =>
                         setForm({ ...form, stock: parseInt(event.target.value, 10) || 0 })
                       }
-                      placeholder="0"
+                      placeholder={form.kind === "digital" ? "Managed below" : "0"}
                       className={`${inputClass} disabled:opacity-40`}
                     />
                   </div>
                 </div>
+
+                {form.kind === "digital" && (
+                  <div className="space-y-4 rounded-xl border border-white/10 bg-white/[0.02] p-4">
+                    <p className="text-xs font-black uppercase tracking-widest text-white/40">
+                      Digital delivery
+                    </p>
+
+                    <div className="grid grid-cols-2 gap-4">
+                      <div>
+                        <label className="mb-2 block text-xs font-black uppercase tracking-widest text-white/40">
+                          Delivered as
+                        </label>
+                        <select
+                          value={form.deliveryMode}
+                          onChange={(event) =>
+                            setForm({
+                              ...form,
+                              deliveryMode: event.target.value as DeliveryMode,
+                            })
+                          }
+                          className={inputClass}
+                        >
+                          <option value="files" className="bg-[#0a0a0a]">
+                            Files only
+                          </option>
+                          <option value="license_keys" className="bg-[#0a0a0a]">
+                            License keys only
+                          </option>
+                          <option value="both" className="bg-[#0a0a0a]">
+                            Files + license keys
+                          </option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="mb-2 block text-xs font-black uppercase tracking-widest text-white/40">
+                          Download limit (0 = unlimited)
+                        </label>
+                        <input
+                          type="number"
+                          min="0"
+                          value={form.downloadLimit || ""}
+                          onChange={(event) =>
+                            setForm({
+                              ...form,
+                              downloadLimit: parseInt(event.target.value, 10) || 0,
+                            })
+                          }
+                          placeholder="Unlimited"
+                          className={inputClass}
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="mb-2 block text-xs font-black uppercase tracking-widest text-white/40">
+                        Download instructions (shown on the claim page)
+                      </label>
+                      <textarea
+                        rows={3}
+                        value={form.digitalInstructions}
+                        onChange={(event) =>
+                          setForm({ ...form, digitalInstructions: event.target.value })
+                        }
+                        placeholder="Unzip firmware-v2.zip, then connect the robot…"
+                        className={inputClass}
+                      />
+                    </div>
+                  </div>
+                )}
 
                 <div>
                   <label className="mb-2 block text-xs font-black uppercase tracking-widest text-white/40">

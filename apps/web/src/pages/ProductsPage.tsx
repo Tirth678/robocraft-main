@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { useEffect, useState, useCallback } from "react";
 import { ShoppingCart, ArrowRight, RefreshCw, Sparkles, Check, Package, Zap, Loader2, Truck } from "lucide-react";
 import { frontendProducts, getProductImage, type FrontendProduct } from "@/data/productCatalog";
-import { fetchPublicProducts, type InventoryProduct, createPreOrder } from "@/lib/inventoryApi";
+import { fetchPublicProducts, resolveMediaUrl, type InventoryProduct, createPreOrder } from "@/lib/inventoryApi";
 import { useCart } from "@/contexts/CartContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
@@ -20,7 +20,7 @@ const localImageMap: Record<string, string> = {
 };
 
 function getProductImageForBackend(product: InventoryProduct): string {
-  if (product.imageUrl) return product.imageUrl;
+  if (product.imageUrl) return resolveMediaUrl(product.imageUrl);
   const local = localImageMap[product.name.toLowerCase()];
   if (local) return local;
   return getProductImage("robocraft-bot");
@@ -28,11 +28,34 @@ function getProductImageForBackend(product: InventoryProduct): string {
 
 function mapInventoryToFrontend(item: InventoryProduct): FrontendProduct {
   const price = Number(item.price);
-  const mrp = Number((item as any).mrp) || price;
-  const hasStock = item.stock > 0;
+  const mrp = Number(item.mrp) || price;
+  const isDigital = item.kind === "digital";
+
+  // A file-only digital product is unlimited. A license-key product sells from
+  // the key pool, which the API exposes as `stock`.
+  const sellsKeys =
+    item.sellsLicenseKeys ?? (item.deliveryMode === "license_keys" || item.deliveryMode === "both");
+  const units = item.stock ?? 0;
+  const inStock = isDigital ? (!sellsKeys || units > 0) : units > 0;
+
+  const badge = !inStock
+    ? "Coming Soon"
+    : isDigital
+      ? "Instant Download"
+      : units <= 5
+        ? "Low Stock"
+        : "In Stock";
+  const badgeColor = !inStock
+    ? "bg-foreground"
+    : isDigital
+      ? "bg-primary"
+      : units <= 5
+        ? "bg-amber-500"
+        : "bg-accent";
 
   return {
     id: `inv-${item.id}`,
+    inventoryId: item.id,
     name: item.name,
     subtitle: item.description || item.category || "RoboCraft Companion",
     description: item.description || undefined,
@@ -41,9 +64,10 @@ function mapInventoryToFrontend(item: InventoryProduct): FrontendProduct {
     image: getProductImageForBackend(item),
     rating: 4.8,
     reviews: 124,
-    badge: hasStock ? (item.stock <= 5 ? "Low Stock" : "In Stock") : "Coming Soon",
-    badgeColor: hasStock ? (item.stock <= 5 ? "bg-amber-500" : "bg-accent") : "bg-foreground",
-    available: item.isListed && hasStock,
+    badge,
+    badgeColor,
+    available: item.isListed && inStock,
+    isDigital,
   };
 }
 
@@ -107,6 +131,8 @@ const ProductsPage = () => {
     }
     addToCart({
       id: product.id,
+      // Cart needs the raw inventory id: the display id is prefixed for the UI.
+      productId: product.inventoryId ?? product.id,
       name: product.name,
       price: product.price,
       originalPrice: product.originalPrice,

@@ -15,7 +15,7 @@
     "migration:show": "prisma migration show",
     "migration:status": "prisma migration status",
     "seed": "bun run src/prisma/seed.ts",
-    "lint": "eslint src",
+    "lint": "eslint src --ext .ts,.tsx",
     "clean": "rm -rf node_modules"
   },
   "dependencies": {

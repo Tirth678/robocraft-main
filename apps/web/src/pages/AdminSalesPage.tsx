@@ -5,6 +5,7 @@ import { getBackendUrl } from "@/lib/backend";
 import { parseJsonSafely } from "@/lib/apiErrors";
 import { useAuth } from "@/contexts/AuthContext";
 import AdminLayout from "@/components/AdminLayout";
+import RequireAdmin from "@/components/RequireAdmin";
 import {
   BarChart,
   Bar,
@@ -134,17 +135,9 @@ const AdminSalesPage = () => {
   );
 
   useEffect(() => {
-    if (!authLoading) {
-      if (!isAuthenticated || !token) {
-        toast.error("Authentication required");
-        window.location.href = "/auth";
-        return;
-      }
-      if (user?.role !== "admin") {
-        toast.error("Access denied");
-        window.location.href = "/";
-        return;
-      }
+    // RequireAdmin owns the auth gate; hard redirects here caused reload
+    // loops where each visit showed a different screen.
+    if (!authLoading && isAuthenticated && token && user?.role === "admin") {
       fetchProducts();
     }
   }, [authLoading, fetchProducts, isAuthenticated, token, user]);
@@ -192,6 +185,7 @@ const AdminSalesPage = () => {
     : { totalQuantity: 0, totalRevenue: 0, totalOrders: 0 };
 
   return (
+    <RequireAdmin>
     <AdminLayout>
       <div className="p-8">
         {/* Header */}
@@ -470,6 +464,7 @@ const AdminSalesPage = () => {
         )}
       </div>
     </AdminLayout>
+    </RequireAdmin>
   );
 };
 

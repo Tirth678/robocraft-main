@@ -1,6 +1,7 @@
 import { createContext, useContext, useState, ReactNode, useCallback } from "react";
 import { useAuth } from "./AuthContext";
 import { getBackendUrl } from "@/lib/backend";
+import { resolveMediaUrl } from "@/lib/inventoryApi";
 import { parseJsonSafely } from "@/lib/apiErrors";
 import { toast } from "sonner";
 
@@ -11,7 +12,8 @@ export interface CartItem {
   originalPrice: number;
   image: string;
   quantity: number;
-  productId?: number;
+  /** Raw inventory product id (uuid) used for cart mutations. */
+  productId?: string;
 }
 
 interface CartContextType {
@@ -30,7 +32,7 @@ interface CartContextType {
 
 type BackendCartItem = {
   product: {
-    id: number;
+    id: string;
     name: string;
     price: string | number;
     imageUrl?: string | null;
@@ -63,12 +65,13 @@ export const CartProvider = ({ children }: { children: ReactNode }) => {
       if (data?.success && data.data?.items) {
         setItems(
           (data.data.items as BackendCartItem[]).map((item) => ({
-            id: item.product.id.toString(),
+            id: item.product.id,
             productId: item.product.id,
             name: item.product.name,
             price: Number(item.product.price),
             originalPrice: Number(item.product.price),
-            image: item.product.imageUrl || "",
+            // Cart images come back as object-storage keys.
+            image: resolveMediaUrl(item.product.imageUrl ?? null),
             quantity: item.quantity,
           }))
         );
@@ -87,7 +90,9 @@ export const CartProvider = ({ children }: { children: ReactNode }) => {
     }
 
     try {
-      const productId = item.productId || parseInt(item.id);
+      // `productId` is the raw inventory id; older catalog entries still fall
+      // back to the cart row id.
+      const productId = item.productId ?? item.id;
       const response = await fetch(getBackendUrl("/api/cart/items"), {
         method: "POST",
         headers: {

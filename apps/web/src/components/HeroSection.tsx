@@ -10,7 +10,7 @@ const HeroSection = () => {
       <img
         src={heroImg}
         alt="RoboCraft desk companion robot"
-        fetchpriority="high"
+        fetchPriority="high"
         decoding="async"
         className="absolute inset-0 w-full h-full object-cover"
       />

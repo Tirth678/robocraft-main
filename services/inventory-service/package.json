@@ -8,11 +8,15 @@
     "build": "bun build src/index.ts --outdir dist --target bun",
     "start": "bun dist/index.js",
     "admin:grant": "bun run src/grant-admin.ts",
-    "lint": "eslint src",
+    "db:migrate": "bun --env-file=../../.env run src/migrate.ts",
+    "smoke:digital": "bun --env-file=../../.env run src/__smoke__/digital.smoke.ts",
+    "smoke:storage": "bun --env-file=../../.env run src/__smoke__/storage.smoke.ts",
+    "lint": "eslint src --ext .ts,.tsx",
     "clean": "rm -rf dist node_modules"
   },
   "dependencies": {
     "@elysiajs/cors": "^1.4.2",
+    "aws4fetch": "^1.0.20",
     "database": "*",
     "elysia": "^1.0.0",
     "jose": "^6.2.12",

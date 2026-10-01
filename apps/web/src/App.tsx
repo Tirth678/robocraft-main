@@ -57,6 +57,7 @@ const AnimatedRoutes = () => {
         <Route path="/admin/products" element={wrap(<AdminProductsPage />)} />
         <Route path="/admin/sales" element={wrap(<AdminSalesPage />)} />
         <Route path="/admin/pre-orders" element={wrap(<AdminPreOrdersPage />)} />
+        <Route path="/admin/pre-orders/:id" element={wrap(<AdminPreOrdersPage />)} />
         <Route path="/admin/inventory" element={wrap(<InventoryAdminPage />)} />
         <Route path="/checkout" element={wrap(<CheckoutPage />)} />
         <Route path="/track-order" element={wrap(<TrackOrderPage />)} />

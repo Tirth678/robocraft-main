@@ -37,6 +37,31 @@ interface PreOrderEmailData {
   };
 }
 
+/** One fulfilled digital order line, as returned by inventory-service. */
+export interface DigitalEntitlement {
+  id: string;
+  itemId: string;
+  orderId: string;
+  deliveryMode: string;
+  status: string;
+  downloadCount: number;
+  downloadLimit: number | null;
+  downloadsRemaining: number | null;
+  licenseKeys: string[];
+  claimUrl: string;
+}
+
+export interface DigitalDeliveryData {
+  type: 'digital_delivery';
+  to: string;
+  orderId: string;
+  customerName: string | null;
+  total: number;
+  entitlements: DigitalEntitlement[];
+}
+
+type EmailJob = PreOrderEmailData | DigitalDeliveryData;
+
 async function sendEmail({ to, subject, html, text }: { to: string; subject: string; html: string; text: string }) {
   if (!resend) {
     console.log('[EMAIL] Would send email:', { to, subject });
@@ -441,7 +466,7 @@ function generateAdminPreOrderEmail(data: PreOrderEmailData['preOrder']) {
         ` : ''}
         
         <div style="text-align: center;">
-          <a href="${process.env.ADMIN_DASHBOARD_URL || 'http://localhost:3006'}/admin/pre-orders/${data.id}" style="display: inline-block; padding: 14px 28px; background: linear-gradient(135deg, #a855f7 0%, #ec4899 100%); color: #ffffff; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 14px;">View in Admin Panel</a>
+          <a href="${process.env.ADMIN_DASHBOARD_URL || 'http://localhost:8080'}/admin/pre-orders/${data.id}" style="display: inline-block; padding: 14px 28px; background: linear-gradient(135deg, #a855f7 0%, #ec4899 100%); color: #ffffff; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 14px;">View in Admin Panel</a>
         </div>
       </td>
     </tr>
@@ -476,7 +501,7 @@ ${savings > 0 ? `- MRP: ₹${productMrp.toLocaleString('en-IN')} (${savingsPerce
 - Total Amount: ₹${totalAmount.toLocaleString('en-IN')}
 
 ${notes ? `CUSTOMER NOTES:\n${notes}\n` : ''}
-View in Admin Panel: ${process.env.ADMIN_DASHBOARD_URL || 'http://localhost:3006'}/admin/pre-orders/${data.id}
+View in Admin Panel: ${process.env.ADMIN_DASHBOARD_URL || 'http://localhost:8080'}/admin/pre-orders/${data.id}
 
 ---
 This is an automated notification from RoboCraft Admin System
@@ -484,16 +509,132 @@ This is an automated notification from RoboCraft Admin System
   };
 }
 
-const emailWorker = new Worker<PreOrderEmailData>(
+/** Entitlements carry admin-supplied license keys, so escape before embedding. */
+const escapeHtml = (value: string) =>
+  value.replace(
+    /[&<>"']/g,
+    (char) =>
+      ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char] as string,
+  );
+
+function generateDigitalDeliveryEmail(data: DigitalDeliveryData) {
+  const { orderId, customerName, total, entitlements } = data;
+  const orderRef = escapeHtml(orderId.slice(0, 8).toUpperCase());
+  const greeting = customerName ? `Hi ${escapeHtml(customerName)},` : 'Hi,';
+
+  const cards = entitlements
+    .map((entitlement) => {
+      const keys = entitlement.licenseKeys.length
+        ? `<div style="margin-top:14px">${entitlement.licenseKeys
+            .map(
+              (key) =>
+                `<div style="background:#14141c;border:1px solid rgba(255,255,255,0.12);border-radius:10px;padding:10px 12px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px;letter-spacing:0.5px;color:#e9e9f5;word-break:break-all">${escapeHtml(key)}</div>`,
+            )
+            .join('')}</div>`
+        : '';
+
+      const usage =
+        entitlement.downloadLimit == null
+          ? 'Unlimited downloads'
+          : `${entitlement.downloadsRemaining ?? 0} of ${entitlement.downloadLimit} download(s) left`;
+
+      return `
+        <tr>
+          <td style="padding:0 0 20px">
+            <table role="presentation" width="100%" style="background:#111119;border:1px solid rgba(255,255,255,0.08);border-radius:16px">
+              <tr>
+                <td style="padding:22px 24px">
+                  <p style="margin:0;font-size:16px;font-weight:700;color:#ffffff">Your digital product</p>
+                  <p style="margin:4px 0 0;font-size:12px;color:#8b8ba7">${usage}</p>
+                  ${keys}
+                  <a href="${escapeHtml(entitlement.claimUrl)}"
+                     style="display:inline-block;margin-top:16px;background:linear-gradient(135deg,#4c1d95,#6366f1);color:#ffffff;text-decoration:none;font-weight:700;font-size:14px;padding:12px 22px;border-radius:999px">
+                    Open my downloads
+                  </a>
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>`;
+    })
+    .join('');
+
+  const text = [
+    `${greeting}`,
+    '',
+    `Your RoboCraft digital purchase is ready (order #${orderRef}).`,
+    entitlements
+      .map(
+        (entitlement) =>
+          `- Download link: ${entitlement.claimUrl}` +
+          (entitlement.licenseKeys.length
+            ? `\n  License key(s): ${entitlement.licenseKeys.join(', ')}`
+            : ''),
+      )
+      .join('\n'),
+    '',
+    `Order total: INR ${total.toFixed(2)}`,
+    '',
+    'These links are personal to you — please do not share them.',
+  ].join('\n');
+
+  return {
+    subject: `Your RoboCraft download is ready · order #${orderRef}`,
+    text,
+    html: `<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Your RoboCraft digital download</title>
+  </head>
+  <body style="margin:0;padding:0;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:linear-gradient(135deg,#08080c 0%,#1a1a24 100%);color:#ffffff;">
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:650px;margin:0 auto;background:#08080c;">
+      <tr>
+        <td style="background:linear-gradient(135deg,#4c1d95 0%,#6366f1 50%,#8b5cf6 100%);padding:40px 30px;text-align:center;">
+          <h1 style="margin:0 0 8px 0;font-size:30px;font-weight:700;">RoboCraft</h1>
+          <p style="margin:0;font-size:15px;color:rgba(255,255,255,0.9);">Your digital purchase is ready</p>
+        </td>
+      </tr>
+      <tr>
+        <td style="padding:32px 30px 10px 30px;">
+          <p style="margin:0 0 6px 0;font-size:18px;font-weight:700;">${greeting}</p>
+          <p style="margin:0 0 24px 0;font-size:14px;color:rgba(255,255,255,0.65);line-height:1.6;">
+            Order <strong style="color:#ffffff;">#${orderRef}</strong> is paid and your downloads are unlocked.
+            Everything below is linked to your account — the keys are yours to keep.
+          </p>
+        </td>
+      </tr>
+      <tr>
+        <td style="padding:0 30px;">
+          <table role="presentation" width="100%" cellspacing="0" cellpadding="0">${cards}</table>
+        </td>
+      </tr>
+      <tr>
+        <td style="padding:8px 30px 36px 30px;">
+          <p style="margin:0;font-size:13px;color:rgba(255,255,255,0.5);">
+            Order total: INR ${total.toFixed(2)} · Keep this link private.
+          </p>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>`,
+  };
+}
+
+const emailWorker = new Worker<EmailJob>(
   'emails',
   async (job) => {
-    const { type, to, preOrder } = job.data;
-    
-    let emailContent;
-    if (type === 'pre_order_customer') {
-      emailContent = generateCustomerPreOrderEmail(preOrder);
+    const { type, to } = job.data;
+
+    let emailContent: { subject: string; html: string; text: string };
+    if (type === 'digital_delivery') {
+      emailContent = generateDigitalDeliveryEmail(job.data);
+    } else if (type === 'pre_order_customer') {
+      emailContent = generateCustomerPreOrderEmail(job.data.preOrder);
     } else if (type === 'pre_order_admin') {
-      emailContent = generateAdminPreOrderEmail(preOrder);
+      emailContent = generateAdminPreOrderEmail(job.data.preOrder);
     } else {
       throw new Error(`Unknown email type: ${type}`);
     }
@@ -519,7 +660,7 @@ emailWorker.on('failed', (job, err) => {
 });
 
 const queueEvents = new QueueEvents('emails', { connection: redis });
-queueEvents.on('completed', ({ jobId, returnvalue }) => {
+queueEvents.on('completed', ({ jobId }) => {
   console.log(`[EMAIL] Queue event - Job ${jobId} completed`);
 });
 queueEvents.on('failed', ({ jobId, failedReason }) => {
@@ -572,6 +713,32 @@ const app = new Elysia()
       console.error('[EMAIL] Failed to queue emails:', error);
       set.status = 500;
       return { success: false, error: 'Failed to queue emails' };
+    }
+  })
+  .post('/send-digital-delivery', async ({ body, set }) => {
+    const payload = (body ?? {}) as Partial<DigitalDeliveryData> & { customerEmail?: string };
+    const to = typeof payload?.to === 'string' ? payload.to : payload?.customerEmail;
+    const entitlements = Array.isArray(payload?.entitlements) ? payload.entitlements : [];
+
+    if (!to || !entitlements.length) {
+      set.status = 400;
+      return { success: false, error: 'customerEmail and entitlements are required' };
+    }
+
+    try {
+      await emailQueue.add('digital-delivery', {
+        type: 'digital_delivery',
+        to,
+        orderId: String(payload.orderId ?? ''),
+        customerName: payload.customerName ?? null,
+        total: Number(payload.total ?? 0),
+        entitlements,
+      });
+      return { success: true, message: 'Digital delivery email queued' };
+    } catch (error) {
+      console.error('[EMAIL] Failed to queue digital delivery:', error);
+      set.status = 500;
+      return { success: false, error: 'Failed to queue email' };
     }
   })
   .listen(3005);

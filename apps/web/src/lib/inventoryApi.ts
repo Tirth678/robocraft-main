@@ -24,14 +24,99 @@ export interface InventoryProduct {
   name: string;
   description: string | null;
   price: number;
+  mrp?: number;
   category: string | null;
   kind: ProductKind;
+  deliveryMode?: DeliveryMode;
+  downloadLimit?: number | null;
+  digitalInstructions?: string | null;
+  isDigital?: boolean;
   imageUrl: string | null;
-  stock: number;
+  imageKeys?: string[];
+  /** null means "unlimited" — digital file products are never stocked. */
+  stock: number | null;
   isListed: boolean;
   createdAt: string;
   updatedAt: string;
+  assetsCount?: number;
+  keysAvailable?: number;
+  keysTotal?: number;
+  sellsFiles?: boolean;
+  sellsLicenseKeys?: boolean;
   assets?: InventoryAsset[];
+}
+
+export type DeliveryMode = "files" | "license_keys" | "both";
+
+export interface DigitalAsset {
+  id: string;
+  publicId: string;
+  itemId: string | null;
+  productId: string | null;
+  objectKey: string;
+  bucket: string;
+  fileName: string;
+  format: string | null;
+  contentType: string;
+  bytes: number;
+  checksum: string | null;
+  position: number;
+  resourceType: string;
+  secureUrl: string | null;
+  url: string | null;
+  createdAt: string;
+  /** Present on the public claim response only. */
+  downloadUrl?: string;
+}
+
+export interface DigitalLicenseKey {
+  id: string;
+  licenseKey: string;
+  status: "available" | "assigned" | "revoked";
+  entitlementId: string | null;
+  createdAt: string;
+  assignedAt: string | null;
+}
+
+export interface DigitalEntitlement {
+  id: string;
+  orderId: string;
+  orderItemId: string | null;
+  itemId: string;
+  userId: string | null;
+  customerEmail: string;
+  deliveryMode: DeliveryMode;
+  status: "active" | "revoked" | "expired";
+  downloadCount: number;
+  downloadLimit: number | null;
+  downloadsRemaining: number | null;
+  licenseKeys: string[];
+  claimUrl: string;
+  expiresAt: string | null;
+  fulfilledAt: string;
+  lastDownloadedAt: string | null;
+  createdAt: string;
+  product?: { id: string; name: string; sku: string };
+}
+
+export interface DigitalClaim {
+  entitlement: DigitalEntitlement;
+  product: {
+    id: string;
+    sku: string;
+    name: string;
+    description: string | null;
+    deliveryMode: DeliveryMode;
+    instructions: string | null;
+  } | null;
+  files: DigitalAsset[];
+}
+
+export interface LicenseKeyImportResult {
+  itemId: string;
+  submitted: number;
+  added: number;
+  duplicates: number;
 }
 
 export interface StockMovement {
@@ -45,13 +130,18 @@ export interface StockMovement {
 }
 
 export interface InventorySummary {
-  products: { total: number; listed: number; unlisted: number };
+  products: { total: number; listed: number; unlisted: number; digital?: number; physical?: number };
   stock: {
     onHand: number;
     outOfStock: number;
     lowStock: number;
     lowStockAt: number;
     value: number;
+  };
+  digital?: {
+    assets: number;
+    keysAvailable: number;
+    activeEntitlements: number;
   };
   assets: number;
 }
@@ -69,6 +159,9 @@ export interface ProductPayload {
   price: number;
   category?: string;
   kind?: ProductKind;
+  deliveryMode?: DeliveryMode;
+  downloadLimit?: number | null;
+  digitalInstructions?: string;
   stock?: number;
   isListed?: boolean;
   imageUrl?: string;
@@ -137,6 +230,18 @@ const inventoryUrl = (path: string) => {
     return `${inventoryBase}${path.startsWith("/") ? path : `/${path}`}`;
   }
   return getBackendUrl(`/inventory${path}`);
+};
+
+/**
+ * Product images are stored in object storage as bare object keys, so a key has
+ * to be routed back through the inventory service, which presigns or streams the
+ * object. Absolute and site-relative URLs (legacy seeds, bundled assets) pass
+ * through untouched.
+ */
+export const resolveMediaUrl = (keyOrUrl: string | null | undefined): string => {
+  if (!keyOrUrl) return "";
+  if (/^https?:\/\//i.test(keyOrUrl) || keyOrUrl.startsWith("/")) return keyOrUrl;
+  return inventoryUrl(`/media?key=${encodeURIComponent(keyOrUrl)}`);
 };
 
 function buildQuery(query: ProductQuery = {}) {
@@ -251,19 +356,39 @@ export const uploadAssets = (
   return request<InventoryAsset[]>("/assets", { token, method: "POST", body: form });
 };
 
+export const fetchAssets = (token: string, productId?: string) => {
+  const query = productId ? `?productId=${encodeURIComponent(productId)}` : "";
+  return request<InventoryAsset[]>(`/assets${query}`, { token });
+};
+
+/**
+ * Object keys can contain slashes, so the key travels as a query parameter
+ * rather than a path segment — the service reads `?key=`.
+ */
 export const attachAsset = (
   token: string,
   publicId: string,
   body: { productId: string | null; primary?: boolean }
 ) =>
-  request<InventoryAsset>(`/assets/${publicId}`, {
+  request<InventoryAsset>(`/assets?key=${encodeURIComponent(publicId)}`, {
     token,
     method: "PATCH",
     body: JSON.stringify(body),
   });
 
-export const deleteAsset = (token: string, publicId: string) =>
-  request<InventoryAsset>(`/assets/${publicId}`, { token, method: "DELETE" });
+export const deleteAsset = (
+  token: string,
+  publicId: string,
+  opts: { productId?: string; purge?: boolean } = {}
+) => {
+  const params = new URLSearchParams({ key: publicId });
+  if (opts.productId) params.set("productId", opts.productId);
+  if (opts.purge) params.set("purge", "true");
+  return request<{ publicId: string; deleted: boolean }>(`/assets?${params.toString()}`, {
+    token,
+    method: "DELETE",
+  });
+};
 
 export const checkPreOrderAvailability = (productId: string) =>
   request<{ product: InventoryProduct; canPreOrder: boolean }>(`/pre-orders/product/${productId}`);
@@ -274,8 +399,10 @@ export const createPreOrder = (input: PreOrderCreateInput) =>
     body: JSON.stringify(input),
   });
 
-export const fetchAdminPreOrders = (token: string, query?: { status?: string; limit?: number; offset?: number }) =>
-  request<PreOrderPage>(`/admin/pre-orders${buildQuery(query as any)}`, { token });
+export const fetchAdminPreOrders = (
+  token: string,
+  query?: { status?: string; limit?: number; offset?: number; search?: string },
+) => request<PreOrderPage>(`/admin/pre-orders${buildQuery(query)}`, { token });
 
 export const fetchAdminPreOrder = (token: string, id: string) =>
   request<PreOrder>(`/admin/pre-orders/${id}`, { token });
@@ -292,3 +419,71 @@ export const cancelAdminPreOrder = (token: string, id: string) =>
     token,
     method: "DELETE",
   });
+
+// -----------------------------------------------------------------------
+// DIGITAL INVENTORY: deliverables, license keys and entitlements
+// -----------------------------------------------------------------------
+
+export const fetchDigitalAssets = (token: string, productId: string) =>
+  request<DigitalAsset[]>(`/products/${productId}/digital-assets`, { token });
+
+export const uploadDigitalAssets = (token: string, productId: string, files: File[]) => {
+  const form = new FormData();
+  for (const file of files) form.append("files", file);
+  return request<DigitalAsset[]>(`/products/${productId}/digital-assets`, {
+    token,
+    method: "POST",
+    body: form,
+  });
+};
+
+/** Objects are kept by default so already-sold entitlements keep working. */
+export const deleteDigitalAsset = (
+  token: string,
+  assetId: string,
+  opts: { purge?: boolean } = {}
+) =>
+  request<{ id: string; deleted: boolean; purged: boolean }>(
+    `/digital-assets/${assetId}${opts.purge ? "?purge=true" : ""}`,
+    { token, method: "DELETE" }
+  );
+
+export const fetchLicenseKeys = (
+  token: string,
+  productId: string,
+  status?: DigitalLicenseKey["status"]
+) =>
+  request<DigitalLicenseKey[]>(`/products/${productId}/keys${status ? `?status=${status}` : ""}`, {
+    token,
+  });
+
+/** Accepts an array or raw pasted text (one key per line). */
+export const importLicenseKeys = (token: string, productId: string, keys: string[] | string) =>
+  request<LicenseKeyImportResult>(`/products/${productId}/keys`, {
+    token,
+    method: "POST",
+    body: JSON.stringify(typeof keys === "string" ? { text: keys } : { keys }),
+  });
+
+export const revokeLicenseKey = (token: string, keyId: string) =>
+  request<{ id: string; revoked: boolean }>(`/digital-keys/${keyId}/revoke`, {
+    token,
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+
+export const fetchEntitlements = (
+  token: string,
+  query?: { orderId?: string; email?: string; limit?: number }
+) => request<DigitalEntitlement[]>(`/admin/entitlements${buildQuery(query as ProductQuery)}`, { token });
+
+export const revokeEntitlement = (token: string, id: string) =>
+  request<{ id: string; revoked: boolean }>(`/admin/entitlements/${id}/revoke`, {
+    token,
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+
+/** Public, token-gated claim payload — no Authorization header involved. */
+export const fetchDigitalClaim = (accessToken: string) =>
+  request<DigitalClaim>(`/downloads/${encodeURIComponent(accessToken)}`);

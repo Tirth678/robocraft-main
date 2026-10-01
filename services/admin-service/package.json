@@ -1,0 +1,29 @@
+{
+  "name": "admin-service",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "bun --env-file=../../.env run --watch src/index.ts",
+    "build": "bun build src/index.ts --outdir dist --target bun",
+    "start": "bun dist/index.js",
+    "lint": "eslint src --ext .ts,.tsx",
+    "clean": "rm -rf dist node_modules"
+  },
+  "dependencies": {
+    "@elysiajs/cookie": "^0.8.0",
+    "@elysiajs/cors": "^1.4.2",
+    "bcryptjs": "^3.0.3",
+    "elysia": "^1.0.0",
+    "jose": "^6.2.12",
+    "pg": "^8.23.0",
+    "shared-types": "*",
+    "shared-utils": "*",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@types/bun": "^1.1.0",
+    "typescript": "^5.4.5",
+    "eslint": "^8.57.0"
+  }
+}

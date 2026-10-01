@@ -63,3 +63,6 @@ Thumbs.db
 .devin
 prisma-8
 .neon
+
+# TypeScript incremental build info
+*.tsbuildinfo

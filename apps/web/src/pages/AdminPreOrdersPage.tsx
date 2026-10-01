@@ -19,7 +19,7 @@ import {
   RefreshCw,
   X,
 } from "lucide-react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import { toast } from "sonner";
 import { getSafeErrorMessage } from "@/lib/apiErrors";
 import { useAuth } from "@/contexts/AuthContext";
@@ -51,6 +51,9 @@ const ITEMS_PER_PAGE = 20;
 
 const AdminPreOrdersPage = () => {
   const navigate = useNavigate();
+  // Admin notification emails deep-link to /admin/pre-orders/:id — open that
+  // pre-order directly instead of dropping the admin on the plain list.
+  const { id: linkedPreOrderId } = useParams<{ id: string }>();
   const { token, user, isAuthenticated, isLoading: authLoading } = useAuth();
   const [preOrders, setPreOrders] = useState<PreOrder[]>([]);
   const [total, setTotal] = useState(0);
@@ -66,7 +69,7 @@ const AdminPreOrdersPage = () => {
     if (!token) return;
     setLoading(true);
     try {
-      const query: any = {
+      const query: { status?: string; limit: number; offset: number; search?: string } = {
         limit: ITEMS_PER_PAGE,
         offset: (currentPage - 1) * ITEMS_PER_PAGE,
       };
@@ -84,24 +87,27 @@ const AdminPreOrdersPage = () => {
   }, [token, currentPage, statusFilter, searchQuery]);
 
   useEffect(() => {
-    if (!authLoading) {
-      if (!isAuthenticated || !token) {
-        toast.error("Authentication required");
-        window.location.href = "/auth";
-        return;
-      }
-      if (user?.role !== "admin") {
-        toast.error("Access denied");
-        window.location.href = "/";
-        return;
-      }
+    // Auth gating is centralized in RequireAdmin; duplicate redirects here
+    // caused reload loops where every visit behaved differently.
+    if (!authLoading && isAuthenticated && token && user?.role === "admin") {
       fetchPreOrders();
     }
   }, [authLoading, fetchPreOrders, isAuthenticated, token, user]);
 
   useEffect(() => {
-    fetchPreOrders();
-  }, [currentPage, statusFilter, searchQuery]);
+    if (!token || !linkedPreOrderId) return;
+    let cancelled = false;
+    fetchAdminPreOrder(token, linkedPreOrderId)
+      .then((preOrder) => {
+        if (!cancelled) setSelectedPreOrder(preOrder);
+      })
+      .catch((error) => {
+        toast.error(getSafeErrorMessage(error, "Pre-order not found"));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [token, linkedPreOrderId]);
 
   const VALID_STATUSES: PreOrderStatus[] = ['pending', 'confirmed', 'cancelled', 'fulfilled'];
 
@@ -191,16 +197,19 @@ const AdminPreOrdersPage = () => {
 
   if (loading) {
     return (
-      <AdminLayout>
-        <div className="flex min-h-screen items-center justify-center">
-          <div className="h-10 w-10 animate-spin rounded-full border-4 border-purple-500 border-t-transparent" />
-        </div>
-      </AdminLayout>
+      <RequireAdmin>
+        <AdminLayout>
+          <div className="flex min-h-screen items-center justify-center">
+            <div className="h-10 w-10 animate-spin rounded-full border-4 border-purple-500 border-t-transparent" />
+          </div>
+        </AdminLayout>
+      </RequireAdmin>
     );
   }
 
   return (
-    <AdminLayout>
+    <RequireAdmin>
+      <AdminLayout>
       <div className="p-8">
         <div className="mb-8 flex flex-wrap items-center justify-between gap-4">
           <div>
@@ -602,7 +611,8 @@ const AdminPreOrdersPage = () => {
           )}
         </AnimatePresence>
       </div>
-    </AdminLayout>
+      </AdminLayout>
+    </RequireAdmin>
   );
 };
 

@@ -5,6 +5,8 @@ export type StoredAuth = {
   firstName?: string;
   lastName?: string;
   name?: string;
+  /** Neon Auth identity role (`admin` | `user`); mirrored here so gates like RequireAdmin stay in sync with the server. */
+  role?: string;
 };
 
 const AUTH_STORAGE_KEY = "robocraft-auth";

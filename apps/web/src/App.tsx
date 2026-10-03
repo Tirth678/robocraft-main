@@ -16,11 +16,6 @@ const Index = lazy(() => import("./pages/Index"));
 const Experience3D = lazy(() => import("./pages/Experience3D"));
 const AboutPage = lazy(() => import("./pages/AboutPage"));
 const SimpleAuthPage = lazy(() => import("./pages/SimpleAuthPage"));
-const AdminPage = lazy(() => import("./pages/AdminPage"));
-const AdminProductsPage = lazy(() => import("./pages/AdminProductsPage"));
-const AdminSalesPage = lazy(() => import("./pages/AdminSalesPage"));
-const AdminPreOrdersPage = lazy(() => import("./pages/AdminPreOrdersPage"));
-const InventoryAdminPage = lazy(() => import("./pages/InventoryAdminPage"));
 const CheckoutPage = lazy(() => import("./pages/CheckoutPage"));
 const TrackOrderPage = lazy(() => import("./pages/TrackOrderPage"));
 const ProductsPage = lazy(() => import("./pages/ProductsPage"));
@@ -53,12 +48,6 @@ const AnimatedRoutes = () => {
         <Route path="/register" element={wrap(<SimpleAuthPage initialMode="signup" />)} />
         <Route path="/login" element={wrap(<SimpleAuthPage initialMode="login" />)} />
         <Route path="/auth/callback" element={wrap(<SimpleAuthPage initialMode="login" />)} />
-        <Route path="/admin" element={wrap(<AdminPage />)} />
-        <Route path="/admin/products" element={wrap(<AdminProductsPage />)} />
-        <Route path="/admin/sales" element={wrap(<AdminSalesPage />)} />
-        <Route path="/admin/pre-orders" element={wrap(<AdminPreOrdersPage />)} />
-        <Route path="/admin/pre-orders/:id" element={wrap(<AdminPreOrdersPage />)} />
-        <Route path="/admin/inventory" element={wrap(<InventoryAdminPage />)} />
         <Route path="/checkout" element={wrap(<CheckoutPage />)} />
         <Route path="/track-order" element={wrap(<TrackOrderPage />)} />
         <Route path="/products" element={wrap(<ProductsPage />)} />

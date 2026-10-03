@@ -8,17 +8,19 @@ import {
   Shield,
   LogOut,
   ShoppingBag,
+  TrendingUp,
 } from "lucide-react";
-import { useAuth } from "@/contexts/AuthContext";
+import { useAuth } from "@/contexts/AdminAuthContext";
 import { toast } from "sonner";
 
-// Admin navigation matches the allowed admin links; the auth surface is
-// Neon Auth only (no hardcoded backend users).
+// Admin navigation matches the allowed admin links. Authentication is the
+// admin-service cookie session; no hardcoded backend users.
 const adminLinks = [
   { label: "Dashboard", href: "/admin", icon: LayoutDashboard },
   { label: "Products", href: "/admin/products", icon: Package },
   { label: "Pre-Orders", href: "/admin/pre-orders", icon: ShoppingBag },
   { label: "Inventory", href: "/admin/inventory", icon: Warehouse },
+  { label: "Sales", href: "/admin/sales", icon: TrendingUp },
 ];
 
 interface AdminLayoutProps {

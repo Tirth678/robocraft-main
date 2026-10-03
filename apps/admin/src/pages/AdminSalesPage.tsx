@@ -1,9 +1,16 @@
 import { useCallback, useEffect, useState } from "react";
 import { Calendar, TrendingUp, Package, RefreshCw, ChevronDown } from "lucide-react";
 import { toast } from "sonner";
-import { getBackendUrl } from "@/lib/backend";
-import { parseJsonSafely } from "@/lib/apiErrors";
-import { useAuth } from "@/contexts/AuthContext";
+import {
+  fetchAdminProducts,
+  fetchProductSales,
+  fetchSalesSummary,
+  resolveMediaUrl,
+  type InventoryProduct,
+  type ProductSales,
+  type SalesSummary,
+} from "@/lib/adminApi";
+import { useAuth } from "@/contexts/AdminAuthContext";
 import AdminLayout from "@/components/AdminLayout";
 import RequireAdmin from "@/components/RequireAdmin";
 import {
@@ -18,51 +25,6 @@ import {
   Line,
 } from "recharts";
 
-type Product = {
-  id: number;
-  name: string;
-  price: number;
-  imageUrl: string | null;
-  category: string | null;
-};
-
-type ProductSalesData = {
-  product: Product;
-  year: number;
-  yearly: {
-    totalQuantity: number;
-    totalRevenue: number;
-    totalOrders: number;
-  };
-  monthlySales: Array<{
-    month: number;
-    quantitySold: number;
-    revenue: number;
-    orderCount: number;
-  }>;
-  dailySales: Array<{
-    day: number;
-    quantitySold: number;
-    revenue: number;
-    orderCount: number;
-  }>;
-};
-
-type OverallSalesData = {
-  year: number;
-  monthlySales: Array<{
-    month: number;
-    orderCount: number;
-    totalRevenue: number;
-    totalItems: number;
-  }>;
-  dailySales: Array<{
-    day: number;
-    orderCount: number;
-    totalRevenue: number;
-  }>;
-};
-
 const MONTHS = [
   "Jan", "Feb", "Mar", "Apr", "May", "Jun",
   "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
@@ -70,26 +32,24 @@ const MONTHS = [
 
 const AdminSalesPage = () => {
   const { token, user, isAuthenticated, isLoading: authLoading } = useAuth();
-  const [products, setProducts] = useState<Product[]>([]);
-  const [selectedProductId, setSelectedProductId] = useState<number | null>(null);
-  const [productSales, setProductSales] = useState<ProductSalesData | null>(null);
-  const [overallSales, setOverallSales] = useState<OverallSalesData | null>(null);
+  const [products, setProducts] = useState<InventoryProduct[]>([]);
+  const [selectedProductId, setSelectedProductId] = useState<string | null>(null);
+  const [productSales, setProductSales] = useState<ProductSales | null>(null);
+  const [overallSales, setOverallSales] = useState<SalesSummary | null>(null);
   const [year, setYear] = useState(new Date().getFullYear());
   const [loading, setLoading] = useState(true);
   const [view, setView] = useState<"monthly" | "daily">("monthly");
 
+  // Sales analytics come from admin-service over the session cookie. billing-service
+  // still exposes copies of these routes, but they require a Neon Auth bearer token
+  // that this console no longer has.
   const fetchProducts = useCallback(async () => {
     if (!token) return;
     try {
-      const res = await fetch(getBackendUrl("/api/products"), {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const payload = await parseJsonSafely<{ success?: boolean; data?: Product[] }>(res);
-      if (res.ok && payload?.success) {
-        setProducts(payload.data || []);
-      }
-    } catch {
-      toast.error("Failed to load products");
+      const page = await fetchAdminProducts(token, { limit: 200 });
+      setProducts(page.items);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to load products");
     }
   }, [token]);
 
@@ -97,36 +57,22 @@ const AdminSalesPage = () => {
     if (!token) return;
     setLoading(true);
     try {
-      const res = await fetch(
-        getBackendUrl(`/api/admin/analytics/sales?year=${year}`),
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-      const payload = await parseJsonSafely<{ success?: boolean; data?: OverallSalesData }>(res);
-      if (res.ok && payload?.success) {
-        setOverallSales(payload.data || null);
-      }
-    } catch {
-      toast.error("Failed to load sales data");
+      setOverallSales(await fetchSalesSummary(token, year));
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to load sales data");
     } finally {
       setLoading(false);
     }
   }, [token, year]);
 
-  const fetchProductSales = useCallback(
-    async (productId: number) => {
+  const loadProductSales = useCallback(
+    async (productId: string) => {
       if (!token) return;
       setLoading(true);
       try {
-        const res = await fetch(
-          getBackendUrl(`/api/admin/analytics/sales/product/${productId}?year=${year}`),
-          { headers: { Authorization: `Bearer ${token}` } }
-        );
-        const payload = await parseJsonSafely<{ success?: boolean; data?: ProductSalesData }>(res);
-        if (res.ok && payload?.success) {
-          setProductSales(payload.data || null);
-        }
-      } catch {
-        toast.error("Failed to load product sales data");
+        setProductSales(await fetchProductSales(token, productId, year));
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : "Failed to load product sales data");
       } finally {
         setLoading(false);
       }
@@ -144,24 +90,25 @@ const AdminSalesPage = () => {
 
   useEffect(() => {
     if (selectedProductId) {
-      fetchProductSales(selectedProductId);
+      loadProductSales(selectedProductId);
     } else {
+      setProductSales(null);
       fetchOverallSales();
     }
-  }, [selectedProductId, year, fetchOverallSales, fetchProductSales]);
+  }, [selectedProductId, year, fetchOverallSales, loadProductSales]);
 
   const chartData = selectedProductId && productSales
     ? view === "monthly"
       ? productSales.monthlySales.map((m) => ({
           name: MONTHS[m.month - 1],
-          revenue: m.revenue,
-          quantity: m.quantitySold,
+          revenue: m.revenue ?? 0,
+          quantity: m.quantitySold ?? 0,
           orders: m.orderCount,
         }))
       : productSales.dailySales.map((d) => ({
           name: `Day ${d.day}`,
-          revenue: d.revenue,
-          quantity: d.quantitySold,
+          revenue: d.revenue ?? 0,
+          quantity: d.quantitySold ?? 0,
           orders: d.orderCount,
         }))
     : overallSales
@@ -169,7 +116,7 @@ const AdminSalesPage = () => {
       ? overallSales.monthlySales.map((m) => ({
           name: MONTHS[m.month - 1],
           revenue: m.totalRevenue,
-          quantity: m.totalItems,
+          quantity: m.totalItems ?? 0,
           orders: m.orderCount,
         }))
       : overallSales.dailySales.map((d) => ({
@@ -242,7 +189,11 @@ const AdminSalesPage = () => {
               >
                 {p.imageUrl && (
                   <div className="h-5 w-5 rounded overflow-hidden">
-                    <img src={p.imageUrl} alt="" className="h-full w-full object-cover" />
+                    <img
+                      src={resolveMediaUrl(p.imageUrl)}
+                      alt=""
+                      className="h-full w-full object-cover"
+                    />
                   </div>
                 )}
                 {p.name}
@@ -450,10 +401,10 @@ const AdminSalesPage = () => {
                         {m.orderCount}
                       </td>
                       <td className="px-6 py-4 text-sm text-white/50 text-center">
-                        {m.quantitySold}
+                        {m.quantitySold ?? 0}
                       </td>
                       <td className="px-6 py-4 text-sm font-black text-white text-right">
-                        ₹{m.revenue.toLocaleString("en-IN")}
+                        ₹{(m.revenue ?? 0).toLocaleString("en-IN")}
                       </td>
                     </tr>
                   ))}

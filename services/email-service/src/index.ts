@@ -466,7 +466,7 @@ function generateAdminPreOrderEmail(data: PreOrderEmailData['preOrder']) {
         ` : ''}
         
         <div style="text-align: center;">
-          <a href="${process.env.ADMIN_DASHBOARD_URL || 'http://localhost:8080'}/admin/pre-orders/${data.id}" style="display: inline-block; padding: 14px 28px; background: linear-gradient(135deg, #a855f7 0%, #ec4899 100%); color: #ffffff; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 14px;">View in Admin Panel</a>
+          <a href="${process.env.ADMIN_DASHBOARD_URL || 'http://localhost:8082'}/admin/pre-orders/${data.id}" style="display: inline-block; padding: 14px 28px; background: linear-gradient(135deg, #a855f7 0%, #ec4899 100%); color: #ffffff; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 14px;">View in Admin Panel</a>
         </div>
       </td>
     </tr>
@@ -501,7 +501,7 @@ ${savings > 0 ? `- MRP: ₹${productMrp.toLocaleString('en-IN')} (${savingsPerce
 - Total Amount: ₹${totalAmount.toLocaleString('en-IN')}
 
 ${notes ? `CUSTOMER NOTES:\n${notes}\n` : ''}
-View in Admin Panel: ${process.env.ADMIN_DASHBOARD_URL || 'http://localhost:8080'}/admin/pre-orders/${data.id}
+View in Admin Panel: ${process.env.ADMIN_DASHBOARD_URL || 'http://localhost:8082'}/admin/pre-orders/${data.id}
 
 ---
 This is an automated notification from RoboCraft Admin System

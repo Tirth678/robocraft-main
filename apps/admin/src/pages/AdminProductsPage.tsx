@@ -22,7 +22,7 @@ import {
 import { motion, AnimatePresence } from "framer-motion";
 import { toast } from "sonner";
 import { getSafeErrorMessage } from "@/lib/apiErrors";
-import { useAuth } from "@/contexts/AuthContext";
+import { useAuth } from "@/contexts/AdminAuthContext";
 import AdminLayout from "@/components/AdminLayout";
 import RequireAdmin from "@/components/RequireAdmin";
 import {
@@ -45,7 +45,7 @@ import {
   type InventoryProduct,
   type ProductKind,
   type ProductQuery,
-} from "@/lib/inventoryApi";
+} from "@/lib/adminApi";
 
 type ProductFormData = {
   sku: string;

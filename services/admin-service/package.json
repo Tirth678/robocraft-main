@@ -6,19 +6,17 @@
   "scripts": {
     "dev": "bun --env-file=../../.env run --watch src/index.ts",
     "build": "bun build src/index.ts --outdir dist --target bun",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
     "start": "bun dist/index.js",
     "lint": "eslint src --ext .ts,.tsx",
     "clean": "rm -rf dist node_modules"
   },
   "dependencies": {
-    "@elysiajs/cookie": "^0.8.0",
     "@elysiajs/cors": "^1.4.2",
+    "aws4fetch": "^1.0.20",
     "bcryptjs": "^3.0.3",
     "elysia": "^1.0.0",
-    "jose": "^6.2.12",
     "pg": "^8.23.0",
-    "shared-types": "*",
-    "shared-utils": "*",
     "zod": "^4.6.5"
   },
   "devDependencies": {

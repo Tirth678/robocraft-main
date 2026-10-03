@@ -399,6 +399,12 @@ async function admin(request: Request): Promise<string | null> {
   return getAdminUserId(request);
 }
 
+// Escape hatch for the legacy admin write routes below; off by default because
+// admin-service is the single writer for the catalog and stock tables.
+const legacyAdminWritesEnabled = /^(1|true|yes)$/i.test(
+  (process.env.ENABLE_LEGACY_ADMIN_WRITES ?? '').trim()
+);
+
 function forbidden(set: { status?: number | string }) {
   set.status = 403;
   return { success: false, error: 'Admin access is required' };
@@ -486,6 +492,25 @@ const app = new Elysia()
       allowedHeaders: ['Content-Type', 'Authorization'],
     })
   )
+  .onBeforeHandle(({ path, request, set }) => {
+    // admin-service is the only writer for products, stock and pre-orders. These
+    // legacy /admin/* routes still exist for older callers, but letting them write
+    // would create a second source of truth on the shared inventory tables, so they
+    // are refused unless someone opts back in. Reads are left alone because
+    // billing-service still calls GET /admin/products.
+    if (legacyAdminWritesEnabled) return;
+    if (!path.startsWith('/admin/')) return;
+
+    const verb = request.method.toUpperCase();
+    if (verb !== 'POST' && verb !== 'PATCH' && verb !== 'PUT' && verb !== 'DELETE') return;
+
+    set.status = 410;
+    return {
+      success: false,
+      error:
+        'Admin writes moved to admin-service. Set ENABLE_LEGACY_ADMIN_WRITES=true only for a deliberate rollback.',
+    };
+  })
   .get('/', () => ({
     service: 'inventory-service',
     status: 'healthy',

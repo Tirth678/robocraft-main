@@ -12,7 +12,7 @@ import {
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
 import { getSafeErrorMessage } from "@/lib/apiErrors";
-import { useAuth } from "@/contexts/AuthContext";
+import { useAuth } from "@/contexts/AdminAuthContext";
 import AdminLayout from "@/components/AdminLayout";
 import RequireAdmin from "@/components/RequireAdmin";
 import {
@@ -22,7 +22,7 @@ import {
   type InventoryProduct,
   type InventorySummary,
   type StockMovement,
-} from "@/lib/inventoryApi";
+} from "@/lib/adminApi";
 
 const LOW_STOCK_AT = 5;
 

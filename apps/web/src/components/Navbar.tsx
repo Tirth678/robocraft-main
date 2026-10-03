@@ -84,18 +84,6 @@ const Navbar = () => {
     if (isAuthenticated) {
       return (
         <div className="flex items-center gap-4">
-          {user?.role === "admin" && (
-            <button
-              onClick={() => navigate("/admin")}
-              className={`flex items-center gap-2 font-body text-sm font-semibold tracking-wider transition-colors ${
-                shouldShowSolid
-                  ? "text-foreground hover:text-accent"
-                  : "text-primary-foreground/90 hover:text-primary-foreground"
-              } focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-4 focus-visible:ring-offset-background`}
-            >
-              <Shield size={18} /> ADMIN
-            </button>
-          )}
           <button
             onClick={handleLogout}
             className={`flex items-center gap-2 font-body text-sm font-semibold tracking-wider transition-colors ${

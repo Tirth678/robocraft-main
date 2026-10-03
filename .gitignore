@@ -35,6 +35,15 @@ bun.lockb
 .env.development
 .env.test
 .env.production
+# Env backups can carry live credentials — never commit them.
+.env.bak
+.env.*.bak
+*.bak
+
+# Local HTTP cookie jars / session dumps
+cookies.txt
+*-cookies.txt
+.cookies/
 
 # Vercel
 .vercel

@@ -22,27 +22,55 @@ import {
 import { useNavigate, useParams } from "react-router-dom";
 import { toast } from "sonner";
 import { getSafeErrorMessage } from "@/lib/apiErrors";
-import { useAuth } from "@/contexts/AuthContext";
+import { useAuth } from "@/contexts/AdminAuthContext";
 import AdminLayout from "@/components/AdminLayout";
 import RequireAdmin from "@/components/RequireAdmin";
-import { fetchAdminPreOrders, fetchAdminPreOrder, updateAdminPreOrder, cancelAdminPreOrder, type PreOrder, type PreOrderPage } from "@/lib/inventoryApi";
+import { fetchAdminPreOrders, fetchAdminPreOrder, updateAdminPreOrder, cancelAdminPreOrder, type PreOrder, type PreOrderPage } from "@/lib/adminApi";
 import { AnimatePresence, motion } from "framer-motion";
 
-type PreOrderStatus = "pending" | "confirmed" | "cancelled" | "fulfilled";
+// Must stay in step with PRE_ORDER_STATUSES in services/admin-service/src/index.ts.
+type PreOrderStatus =
+  | "pending"
+  | "confirmed"
+  | "in_production"
+  | "ready"
+  | "shipped"
+  | "delivered"
+  | "cancelled";
 
 const STATUS_CONFIG: Record<PreOrderStatus, { label: string; color: string; icon: typeof Clock }> = {
   pending: { label: "Pending", color: "text-yellow-400 bg-yellow-500/10", icon: Clock },
   confirmed: { label: "Confirmed", color: "text-blue-400 bg-blue-500/10", icon: CheckCircle },
+  in_production: { label: "In Production", color: "text-amber-400 bg-amber-500/10", icon: Clock },
+  ready: { label: "Ready", color: "text-cyan-400 bg-cyan-500/10", icon: CheckCircle },
+  shipped: { label: "Shipped", color: "text-indigo-400 bg-indigo-500/10", icon: CheckCircle },
+  delivered: { label: "Delivered", color: "text-green-400 bg-green-500/10", icon: CheckCircle },
   cancelled: { label: "Cancelled", color: "text-red-400 bg-red-500/10", icon: XCircle },
-  fulfilled: { label: "Fulfilled", color: "text-green-400 bg-green-500/10", icon: CheckCircle },
 };
+
+// Mirrors PRE_ORDER_TRANSITIONS in services/admin-service/src/index.ts. Offering
+// only legal next states keeps the console from firing requests the API rejects.
+const NEXT_STATUSES: Record<PreOrderStatus, PreOrderStatus[]> = {
+  pending: ["confirmed", "cancelled"],
+  confirmed: ["in_production", "cancelled"],
+  in_production: ["ready", "cancelled"],
+  ready: ["shipped", "in_production"],
+  shipped: ["delivered"],
+  delivered: [],
+  cancelled: [],
+};
+
+const isPreOrderStatus = (value: string): value is PreOrderStatus =>
+  Object.prototype.hasOwnProperty.call(STATUS_CONFIG, value);
 
 const getStatusIcon = (status: string): JSX.Element => {
   switch (status) {
-    case "pending": return <Clock size={10} />;
     case "confirmed": return <CheckCircle size={10} />;
+    case "in_production": return <Clock size={10} />;
+    case "ready": return <CheckCircle size={10} />;
+    case "shipped": return <CheckCircle size={10} />;
+    case "delivered": return <CheckCircle size={10} />;
     case "cancelled": return <XCircle size={10} />;
-    case "fulfilled": return <CheckCircle size={10} />;
     default: return <Clock size={10} />;
   }
 };
@@ -109,7 +137,7 @@ const AdminPreOrdersPage = () => {
     };
   }, [token, linkedPreOrderId]);
 
-  const VALID_STATUSES: PreOrderStatus[] = ['pending', 'confirmed', 'cancelled', 'fulfilled'];
+  const VALID_STATUSES = Object.keys(STATUS_CONFIG) as PreOrderStatus[];
 
   const normalizeStatus = (value: string): PreOrderStatus | null => {
     if (VALID_STATUSES.some((status) => status === value)) {
@@ -154,9 +182,13 @@ const AdminPreOrdersPage = () => {
 
   const handleEditSave = async () => {
     if (!token || !editingPreOrder) return;
-    const normalized = normalizeStatus(editForm.status);
-    if (!normalized) {
+    const normalized = editForm.status ? normalizeStatus(editForm.status) : undefined;
+    if (editForm.status && !normalized) {
       toast.error('Invalid status selection.');
+      return;
+    }
+    if (!normalized && !editForm.customerName && !editForm.customerPhone && !editForm.notes) {
+      toast.error('Nothing to update.');
       return;
     }
     try {
@@ -191,9 +223,24 @@ const AdminPreOrdersPage = () => {
   const statusColors: Record<string, string> = {
     pending: "bg-yellow-500/20 text-yellow-400 border-yellow-500/30",
     confirmed: "bg-blue-500/20 text-blue-400 border-blue-500/30",
+    in_production: "bg-amber-500/20 text-amber-400 border-amber-500/30",
+    ready: "bg-cyan-500/20 text-cyan-400 border-cyan-500/30",
+    shipped: "bg-indigo-500/20 text-indigo-400 border-indigo-500/30",
+    delivered: "bg-green-500/20 text-green-400 border-green-500/30",
     cancelled: "bg-red-500/20 text-red-400 border-red-500/30",
-    fulfilled: "bg-green-500/20 text-green-400 border-green-500/30",
   };
+
+  const badgeStyle = (status: string) =>
+    statusColors[status] ?? "bg-white/10 text-white/60 border-white/20";
+
+  const configFor = (status: string) =>
+    STATUS_CONFIG[status as PreOrderStatus] ?? STATUS_CONFIG.pending;
+
+  const isTerminal = (status: string) =>
+    status === "cancelled" || status === "delivered";
+
+  const nextStatusesFor = (status: string): PreOrderStatus[] =>
+    NEXT_STATUSES[status as PreOrderStatus] ?? [];
 
   if (loading) {
     return (
@@ -246,10 +293,9 @@ const AdminPreOrdersPage = () => {
             className="px-4 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white focus:outline-none focus:border-purple-500/50 appearance-none cursor-pointer min-w-[150px]"
           >
             <option value="all">All Statuses</option>
-            <option value="pending">Pending</option>
-            <option value="confirmed">Confirmed</option>
-            <option value="cancelled">Cancelled</option>
-            <option value="fulfilled">Fulfilled</option>
+            {VALID_STATUSES.map((status) => (
+              <option key={status} value={status}>{STATUS_CONFIG[status].label}</option>
+            ))}
           </select>
         </div>
 
@@ -308,16 +354,16 @@ const AdminPreOrdersPage = () => {
                         <span className="font-display font-bold text-white">{formatCurrency(preOrder.totalAmount)}</span>
                       </td>
                       <td className="px-6 py-4 text-center">
-                        <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold border ${statusColors[preOrder.status]}`}>
+                        <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold border ${badgeStyle(preOrder.status)}`}>
                           {getStatusIcon(preOrder.status)}
-                          {STATUS_CONFIG[preOrder.status].label}
+                          {configFor(preOrder.status).label}
                         </span>
                       </td>
                       <td className="px-6 py-4 text-center text-sm text-white/50">{formatDate(preOrder.createdAt)}</td>
                       <td className="px-6 py-4 text-center">
                         <div className="flex items-center justify-center gap-1">
                           <button
-                            onClick={(e) => { e.stopPropagation(); setEditingPreOrder(preOrder); setEditForm({ status: preOrder.status, customerName: preOrder.customerName || "", customerPhone: preOrder.customerPhone || "", notes: preOrder.notes || "" }); }}
+                            onClick={(e) => { e.stopPropagation(); setEditingPreOrder(preOrder); setEditForm({ status: "", customerName: preOrder.customerName || "", customerPhone: preOrder.customerPhone || "", notes: preOrder.notes || "" }); }}
                             className="p-2 rounded-lg text-white/50 hover:text-white hover:bg-white/10 transition-colors"
                             title="Edit"
                           >
@@ -325,7 +371,7 @@ const AdminPreOrdersPage = () => {
                           </button>
                           <button
                             onClick={(e) => { e.stopPropagation(); handleCancelPreOrder(preOrder); }}
-                            disabled={preOrder.status === "cancelled" || preOrder.status === "fulfilled"}
+                            disabled={isTerminal(preOrder.status) || !nextStatusesFor(preOrder.status).includes("cancelled")}
                             className="p-2 rounded-lg text-white/50 hover:text-red-400 hover:bg-red-500/10 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
                             title="Cancel"
                           >
@@ -403,18 +449,19 @@ const AdminPreOrdersPage = () => {
                 <div className="p-6 space-y-6">
                   {/* Status Badge */}
                   <div className="flex items-center gap-4">
-                    <span className={`inline-flex items-center gap-2 px-4 py-2 rounded-full text-sm font-bold border ${statusColors[selectedPreOrder.status]}`}>
+                    <span className={`inline-flex items-center gap-2 px-4 py-2 rounded-full text-sm font-bold border ${badgeStyle(selectedPreOrder.status)}`}>
                       {getStatusIcon(selectedPreOrder.status)}
-                      {STATUS_CONFIG[selectedPreOrder.status].label}
+                      {configFor(selectedPreOrder.status).label}
                     </span>
-                    {selectedPreOrder.status !== "cancelled" && selectedPreOrder.status !== "fulfilled" && (
+                    {nextStatusesFor(selectedPreOrder.status).length > 0 && (
                       <select
-                        value={selectedPreOrder.status}                         onChange={(e) => handleStatusChange(selectedPreOrder, e.target.value)}
+                        value=""                        onChange={(e) => { if (e.target.value) handleStatusChange(selectedPreOrder, e.target.value); }}
                         className="px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-white focus:outline-none focus:border-purple-500/50"
                       >
-                        <option value="pending">Mark Pending</option>
-                        <option value="confirmed">Mark Confirmed</option>
-                        <option value="fulfilled">Mark Fulfilled</option>
+                        <option value="">Move to…</option>
+                        {nextStatusesFor(selectedPreOrder.status).map((status) => (
+                          <option key={status} value={status}>Mark {STATUS_CONFIG[status].label}</option>
+                        ))}
                       </select>
                     )}
                   </div>
@@ -558,10 +605,10 @@ const AdminPreOrdersPage = () => {
                       onChange={(e) => setEditForm(prev => ({ ...prev, status: e.target.value }))}
                       className="w-full px-4 py-3 rounded-full border border-border bg-secondary font-body text-sm focus:outline-none focus:ring-2 focus:ring-accent"
                     >
-                      <option value="pending">Pending</option>
-                      <option value="confirmed">Confirmed</option>
-                      <option value="cancelled">Cancelled</option>
-                      <option value="fulfilled">Fulfilled</option>
+                      <option value="">Unchanged</option>
+                      {VALID_STATUSES.map((status) => (
+                        <option key={status} value={status}>{STATUS_CONFIG[status].label}</option>
+                      ))}
                     </select>
                   </div>
                   <div>

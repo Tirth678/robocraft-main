@@ -9,6 +9,34 @@ const allowedOrigins = [
   process.env.ADMIN_DASHBOARD_URL,
 ].filter((origin): origin is string => Boolean(origin));
 
+/**
+ * Browser origins allowed to call this service.
+ *
+ * Configured origins are always honoured. Localhost is only tolerated outside
+ * production: with `credentials: true`, a page served from the operator's own
+ * localhost would otherwise be able to ride the session cookie. An empty
+ * allow-list therefore denies every browser origin rather than reflecting it.
+ */
+// `process.env.NODE_ENV` in dot form is constant-folded by `bun build`, which
+// bakes in whatever NODE_ENV was set during the build and ignores the runtime
+// value. Bracket notation keeps this a real lookup, so the production gate below
+// reflects the deployed environment.
+const isProduction = process.env['NODE_ENV'] === 'production';
+const LOCAL_ORIGIN = /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/;
+
+const isAllowedOrigin = (request: Request): boolean => {
+  const origin = request.headers.get('origin');
+  if (!origin) return true; // server-to-server / same-origin, no CORS involved
+  if (allowedOrigins.includes(origin)) return true;
+  return !isProduction && LOCAL_ORIGIN.test(origin);
+};
+
+if (isProduction && allowedOrigins.length === 0) {
+  console.warn(
+    '[AUTH] NODE_ENV=production but neither CUSTOMER_FRONTEND_URL nor ADMIN_DASHBOARD_URL is set — all browser origins will be rejected.',
+  );
+}
+
 /** Normalized, human-readable status for a Neon Auth session. */
 export type AuthStatus =
   | { status: 'authenticated'; email: string; role?: string }
@@ -55,7 +83,7 @@ export const getAuthStatus = async (request: Request): Promise<AuthStatus> => {
 const app = new Elysia()
   .use(
     cors({
-      origin: allowedOrigins.length > 0 ? allowedOrigins : true,
+      origin: isAllowedOrigin,
       credentials: true,
     })
   )

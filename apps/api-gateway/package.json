@@ -7,7 +7,7 @@
   "scripts": {
     "dev": "bun --env-file=../../.env run --watch src/index.ts",
     "build": "bun build src/index.ts --outdir dist --target bun",
-    "start": "bun --env-file=../../.env dist/index.js",
+    "start": "bun dist/index.js",
     "lint": "eslint src --ext .ts,.tsx",
     "smoke:gateway": "bun --env-file=../../.env run src/__smoke__/gateway.smoke.ts",
     "clean": "rm -rf dist node_modules"

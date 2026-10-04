@@ -1,13 +1,13 @@
 import { getApiErrorMessage, parseJsonSafely } from "@/lib/apiErrors";
 
-const configuredApiUrl = import.meta.env.VITE_API_URL?.trim();
+// `VITE_BACKEND_URL` is the canonical backend root and is shared with
+// `lib/backend.ts` and the admin console. The old `VITE_API_URL` override (which
+// differed by carrying its own `/api` suffix) is gone, so there is one name to set.
 const configuredBackendUrl = import.meta.env.VITE_BACKEND_URL?.trim();
 
-export const API_BASE_URL = configuredApiUrl
-  ? configuredApiUrl.replace(/\/+$/, "")
-  : configuredBackendUrl
-    ? `${configuredBackendUrl.replace(/\/+$/, "")}/api`
-    : "/api";
+export const API_BASE_URL = configuredBackendUrl
+  ? `${configuredBackendUrl.replace(/\/+$/, "")}/api`
+  : "/api";
 
 export const apiCall = async <T = unknown>(
   endpoint: string,

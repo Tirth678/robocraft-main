@@ -38,16 +38,44 @@ const publicBaseUrl = (process.env.INVENTORY_PUBLIC_URL || `http://localhost:${p
   ''
 );
 
-const allowedOrigins = [
+const configuredOrigins = [
   process.env.ADMIN_DASHBOARD_URL,
   process.env.CUSTOMER_FRONTEND_URL,
+].filter((origin): origin is string => Boolean(origin));
+
+/**
+ * Localhost ports the storefront/admin dev servers bind to. Development-only:
+ * with `credentials: true`, a page served from the operator's own localhost
+ * would otherwise be able to ride the session cookie in production.
+ */
+const devOrigins = [
   'http://localhost:8080',
   'http://localhost:3000',
   'http://localhost:5173',
   'http://127.0.0.1:8080',
   'http://127.0.0.1:3000',
   'http://127.0.0.1:5173',
-].filter((origin): origin is string => Boolean(origin));
+];
+
+// `process.env.NODE_ENV` in dot form is constant-folded by `bun build`, which
+// bakes in whatever NODE_ENV was set during the build and ignores the runtime
+// value. Bracket notation keeps this a real lookup, so the production gate below
+// reflects the deployed environment.
+const isProduction = process.env['NODE_ENV'] === 'production';
+const LOCAL_ORIGIN = /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/;
+
+const isAllowedOrigin = (request: Request): boolean => {
+  const origin = request.headers.get('origin');
+  if (!origin) return true; // server-to-server / same-origin, no CORS involved
+  if (configuredOrigins.includes(origin)) return true;
+  return !isProduction && (LOCAL_ORIGIN.test(origin) || devOrigins.includes(origin));
+};
+
+if (isProduction && configuredOrigins.length === 0) {
+  console.warn(
+    '[INVENTORY] NODE_ENV=production but neither CUSTOMER_FRONTEND_URL nor ADMIN_DASHBOARD_URL is set — all browser origins will be rejected.',
+  );
+}
 
 const kindSchema = z.enum(['physical', 'digital']);
 const deliveryModeSchema = z.enum(['files', 'license_keys', 'both']);
@@ -479,14 +507,7 @@ async function decorateItems(
 const app = new Elysia()
   .use(
     cors({
-      origin: (request: Request) => {
-        const origin = request.headers.get('origin');
-        if (!origin) return true;
-        if (allowedOrigins.length === 0 || allowedOrigins.includes(origin)) return true;
-        // Allow localhost and local IP origins in development
-        if (/^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) return true;
-        return false;
-      },
+      origin: isAllowedOrigin,
       credentials: true,
       methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE', 'OPTIONS'],
       allowedHeaders: ['Content-Type', 'Authorization'],

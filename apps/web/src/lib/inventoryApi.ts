@@ -219,10 +219,10 @@ export interface PreOrderPage {
   total: number;
 }
 
+// Single canonical name. An older `VITE_INVENTORY_URL` alias used to be read
+// here too, which made it ambiguous which one a deployment had actually set.
 const inventoryBase = (
-  (import.meta.env.VITE_INVENTORY_URL as string | undefined) ||
-  (import.meta.env.VITE_INVENTORY_SERVICE_URL as string | undefined) ||
-  ""
+  (import.meta.env.VITE_INVENTORY_SERVICE_URL as string | undefined) || ""
 ).trim().replace(/\/+$/, "");
 
 const inventoryUrl = (path: string) => {

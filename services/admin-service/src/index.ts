@@ -159,12 +159,33 @@ const preOrderUpdateSchema = z.object({
   quantity: z.number().int().min(1).max(1000).optional(),
 });
 
+/**
+ * The admin console is a separate origin from the storefront, so it gets its
+ * own allow-list. It fails closed: with `ADMIN_ALLOWED_ORIGINS` unset only the
+ * local dev console may call in, which would silently break a deployed admin —
+ * hence the loud production warning rather than a permissive default.
+ */
+const adminAllowedOrigins = (
+  process.env.ADMIN_ALLOWED_ORIGINS ?? 'http://localhost:5173,http://localhost:8082'
+)
+  .split(',')
+  .map((o) => o.trim())
+  .filter(Boolean);
+
+// `process.env.NODE_ENV` in dot form is constant-folded by `bun build`, which
+// bakes in whatever NODE_ENV was set during the build and ignores the runtime
+// value. Bracket notation keeps this a real lookup, so the production gate below
+// reflects the deployed environment.
+if (process.env['NODE_ENV'] === 'production' && !process.env.ADMIN_ALLOWED_ORIGINS) {
+  console.warn(
+    '[ADMIN] NODE_ENV=production but ADMIN_ALLOWED_ORIGINS is unset — the deployed admin console will be rejected by CORS. Set it to the admin origin.',
+  );
+}
+
 const app = new Elysia()
   .use(
     cors({
-      origin: (process.env.ADMIN_ALLOWED_ORIGINS ?? 'http://localhost:5173,http://localhost:8082')
-        .split(',')
-        .map((o) => o.trim()),
+      origin: adminAllowedOrigins,
       credentials: true,
       methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
     }),

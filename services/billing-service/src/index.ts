@@ -28,6 +28,11 @@ const db = new Pool({ connectionString: databaseUrl, max: 10 });
 
 const razorpayKeyId = process.env.RAZORPAY_KEY_ID;
 const razorpayKeySecret = process.env.RAZORPAY_KEY_SECRET;
+// Razorpay signs each webhook with the secret configured on that webhook
+// endpoint, which is a *different* value from the API key secret. Verifying
+// with the key secret instead makes every live webhook fail with 401, so prefer
+// the dedicated secret and only fall back for setups that still share one value.
+const razorpayWebhookSecret = process.env.RAZORPAY_WEBHOOK_SECRET || razorpayKeySecret;
 const razorpay =
   razorpayKeyId && razorpayKeySecret
     ? new Razorpay({ key_id: razorpayKeyId, key_secret: razorpayKeySecret })
@@ -39,14 +44,31 @@ const razorpay =
  */
 const paymentMode = razorpay ? 'razorpay' : 'mock';
 
-const allowedOrigins = [
+const configuredOrigins = [
   process.env.ADMIN_DASHBOARD_URL,
   process.env.CUSTOMER_FRONTEND_URL,
+].filter((origin): origin is string => Boolean(origin));
+
+/** Development-only storefront/admin origins; see inventory-service for why. */
+const devOrigins = [
   'http://localhost:8080',
   'http://localhost:5173',
   'http://127.0.0.1:8080',
   'http://127.0.0.1:5173',
-].filter((origin): origin is string => Boolean(origin));
+];
+
+// `process.env.NODE_ENV` in dot form is constant-folded by `bun build`, which
+// bakes in whatever NODE_ENV was set during the build and ignores the runtime
+// value. Bracket notation keeps this a real lookup, so the production gate below
+// reflects the deployed environment.
+const isProduction = process.env['NODE_ENV'] === 'production';
+const LOCAL_ORIGIN = /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/;
+
+if (isProduction && configuredOrigins.length === 0) {
+  console.warn(
+    '[BILLING] NODE_ENV=production but neither CUSTOMER_FRONTEND_URL nor ADMIN_DASHBOARD_URL is set — all browser origins will be rejected.',
+  );
+}
 
 interface CartItem {
   product: {
@@ -109,9 +131,11 @@ const app = new Elysia()
     cors({
       origin: (request: Request) => {
         const origin = request.headers.get('origin');
-        if (!origin) return true;
-        if (allowedOrigins.includes(origin)) return true;
-        return /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin);
+        if (!origin) return true; // server-to-server / same-origin
+        if (configuredOrigins.includes(origin)) return true;
+        // Localhost is a development convenience only: with `credentials: true`
+        // a page on the operator's localhost could otherwise ride the cookie.
+        return !isProduction && (LOCAL_ORIGIN.test(origin) || devOrigins.includes(origin));
       },
       credentials: true,
       methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
@@ -356,12 +380,12 @@ const app = new Elysia()
     const raw = await request.text();
     const signature = request.headers.get('x-razorpay-signature');
 
-    if (!razorpayKeySecret || !signature) {
+    if (!razorpayWebhookSecret || !signature) {
       set.status = 400;
       return { success: false, error: 'Webhook is not configured' };
     }
 
-    const expected = createHmac('sha256', razorpayKeySecret).update(raw).digest('hex');
+    const expected = createHmac('sha256', razorpayWebhookSecret).update(raw).digest('hex');
     const provided = Buffer.from(signature, 'utf8');
     const wanted = Buffer.from(expected, 'utf8');
     if (provided.length !== wanted.length || !timingSafeEqual(provided, wanted)) {

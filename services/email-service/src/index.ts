@@ -6,6 +6,10 @@ import { Resend } from 'resend';
 const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379';
 const resendApiKey = process.env.RESEND_API_KEY;
 
+// PaaS platforms (Railway, Render, Fly) inject PORT and route traffic to it, so
+// the listener must honour it. Hardcoding 3005 fails their health checks.
+const port = Number(process.env.EMAIL_SERVICE_PORT ?? process.env.PORT ?? 3005);
+
 const redis = new Redis(redisUrl, {
   maxRetriesPerRequest: null,
   retryStrategy: (times) => Math.min(times * 50, 2000),
@@ -741,7 +745,7 @@ const app = new Elysia()
       return { success: false, error: 'Failed to queue email' };
     }
   })
-  .listen(3005);
+  .listen(port);
 
 console.log(`Email service running at http://localhost:${app.server?.port}`);
 console.log(`BullMQ email worker started with Redis: ${redisUrl}`);

@@ -10,14 +10,31 @@ const inventoryServiceUrl = (process.env.INVENTORY_SERVICE_URL || 'http://localh
 );
 const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379';
 
-const allowedOrigins = [
+const configuredOrigins = [
   process.env.ADMIN_DASHBOARD_URL,
   process.env.CUSTOMER_FRONTEND_URL,
+].filter((origin): origin is string => Boolean(origin));
+
+/** Development-only storefront/admin origins; see inventory-service for why. */
+const devOrigins = [
   'http://localhost:8080',
   'http://localhost:5173',
   'http://127.0.0.1:8080',
   'http://127.0.0.1:5173',
-].filter((origin): origin is string => Boolean(origin));
+];
+
+// `process.env.NODE_ENV` in dot form is constant-folded by `bun build`, which
+// bakes in whatever NODE_ENV was set during the build and ignores the runtime
+// value. Bracket notation keeps this a real lookup, so the production gate below
+// reflects the deployed environment.
+const isProduction = process.env['NODE_ENV'] === 'production';
+const LOCAL_ORIGIN = /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/;
+
+if (isProduction && configuredOrigins.length === 0) {
+  console.warn(
+    '[CART] NODE_ENV=production but neither CUSTOMER_FRONTEND_URL nor ADMIN_DASHBOARD_URL is set — all browser origins will be rejected.',
+  );
+}
 
 /** One line in a stored cart. Prices are never cached — they stay live. */
 interface CartLine {
@@ -171,9 +188,11 @@ const app = new Elysia()
     cors({
       origin: (request: Request) => {
         const origin = request.headers.get('origin');
-        if (!origin) return true;
-        if (allowedOrigins.includes(origin)) return true;
-        return /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin);
+        if (!origin) return true; // server-to-server / same-origin
+        if (configuredOrigins.includes(origin)) return true;
+        // Localhost is a development convenience only: with `credentials: true`
+        // a page on the operator's localhost could otherwise ride the cookie.
+        return !isProduction && (LOCAL_ORIGIN.test(origin) || devOrigins.includes(origin));
       },
       credentials: true,
       methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],

@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "bun --env-file=../../.env run --watch src/index.ts",
     "build": "bun build src/index.ts --outdir dist --target bun",
-    "start": "bun --env-file=../../.env dist/index.js",
+    "start": "bun dist/index.js",
     "lint": "eslint src --ext .ts,.tsx",
     "clean": "rm -rf dist node_modules"
   },

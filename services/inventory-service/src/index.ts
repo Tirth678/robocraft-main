@@ -737,7 +737,7 @@ const app = new Elysia()
           productMrp: product.mrp_minor ? product.mrp_minor / 100 : 0,
           productImage:
             Array.isArray(product.image_keys) && product.image_keys.length > 0
-              ? product.image_keys[0]
+              ? mediaUrl(product.image_keys[0])
               : null,
           quantity: preOrder.quantity,
           totalAmount:

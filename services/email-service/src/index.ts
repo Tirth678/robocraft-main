@@ -74,13 +74,19 @@ async function sendEmail({ to, subject, html, text }: { to: string; subject: str
   }
   
   const result = await resend.emails.send({
-    from: 'RoboCraft <orders@robocraft.com>',
+    from: process.env.EMAIL_FROM || 'RoboCraft <onboarding@resend.dev>',
     to,
     subject,
     html,
     text,
   });
-  
+
+  if (result.error) {
+    console.error('[EMAIL] Resend send failed:', result.error);
+  } else {
+    console.log('[EMAIL] Resend sent:', result.data?.id);
+  }
+
   return result;
 }
 
@@ -97,9 +103,18 @@ function generateCustomerPreOrderEmail(data: PreOrderEmailData['preOrder']) {
   
   const savings = productMrp > productPrice ? productMrp - productPrice : 0;
   const savingsPercent = savings > 0 ? Math.round((savings / productMrp) * 100) : 0;
+
+  const paymentDueAt = new Date(new Date(createdAt).getTime() + 15 * 24 * 60 * 60 * 1000);
+  const paymentDueDate = paymentDueAt.toLocaleDateString('en-IN', {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+  });
+  const frontendBase = (process.env.CUSTOMER_FRONTEND_URL || '').replace(/\/+$/, '');
+  const qrImageUrl = frontendBase ? `${frontendBase}/payment-qr.png` : null;
   
   return {
-    subject: `Pre-Order Confirmed #${data.id.slice(0, 8).toUpperCase()} | RoboCraft`,
+    subject: `Pre-Order Confirmed #${data.id.slice(0, 8).toUpperCase()} — Payment Due | RoboCraft`,
     html: `
 <!DOCTYPE html>
 <html lang="en">
@@ -243,6 +258,27 @@ function generateCustomerPreOrderEmail(data: PreOrderEmailData['preOrder']) {
           ` : ''}
         </div>
 
+        <!-- Payment Required -->
+        <div style="background: linear-gradient(135deg, #1c1408 0%, #2a1f0d 100%); border: 1px solid rgba(245, 158, 11, 0.4); border-radius: 20px; padding: 30px; margin-bottom: 30px; text-align: center;">
+          <h3 style="margin: 0 0 8px 0; font-size: 22px; font-weight: 700; color: #f59e0b;">⏱️ Complete Payment to Confirm Your Slot</h3>
+          <p style="margin: 0 0 20px 0; font-size: 15px; color: #a1a1aa; line-height: 1.5;">
+            Pay <strong style="color: #ffffff;">₹${totalAmount.toLocaleString('en-IN')}</strong> within
+            <strong style="color: #f59e0b;">15 days</strong> — by
+            <strong style="color: #ffffff;">${paymentDueDate}</strong> — to confirm your production slot.
+            Your slot is not reserved until payment is received.
+          </p>
+
+          ${qrImageUrl ? `
+          <div style="display: inline-block; background: #ffffff; border-radius: 16px; padding: 16px; margin-bottom: 12px;">
+            <img src="${qrImageUrl}" alt="Scan to pay" width="180" height="180" style="display: block; width: 180px; height: 180px;">
+          </div>
+          <p style="margin: 0 0 4px 0; font-size: 15px; font-weight: 600; color: #ffffff;">Scan to Pay</p>
+          <p style="margin: 0; font-size: 13px; color: #a1a1aa;">UPI, netbanking and cards accepted</p>
+          ` : `
+          <p style="margin: 0; font-size: 15px; font-weight: 600; color: #ffffff;">Payment link to follow</p>
+          `}
+        </div>
+
         <!-- What's Next Section -->
         <div style="background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%); border: 1px solid #334155; border-radius: 20px; padding: 30px; margin-bottom: 30px;">
           <h3 style="margin: 0 0 20px 0; font-size: 22px; font-weight: 700; color: #ffffff; text-align: center;">What Happens Next?</h3>
@@ -344,6 +380,12 @@ ORDER DETAILS:
 - Date: ${formatDate(createdAt)}
 
 ${notes ? `YOUR NOTES: "${notes}"` : ''}
+
+PAYMENT REQUIRED:
+- Amount Due: ₹${totalAmount.toLocaleString('en-IN')}
+- Pay By: ${paymentDueDate} (15 days from your pre-order date)
+- Complete payment within 15 days to confirm your production slot. Your slot is not reserved until payment is received.
+${qrImageUrl ? `- Scan the QR code attached in this email to pay (UPI, netbanking and cards accepted): ${qrImageUrl}` : '- A payment link will follow shortly.'}
 
 WHAT'S NEXT:
 1. Production Queue - Your order is now in our high-priority production queue

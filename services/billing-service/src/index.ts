@@ -126,6 +126,74 @@ async function parseBody(request: Request): Promise<Record<string, unknown>> {
   }
 }
 
+interface CouponRow {
+  id: string;
+  code: string;
+  kind: 'percentage' | 'fixed';
+  value_minor: number;
+  minimum_order_minor: number | null;
+  maximum_discount_minor: number | null;
+}
+
+/**
+ * Looks up a promo code that is currently redeemable for an order of
+ * `orderMinor` (in paise). Everything the storefront shows is re-checked here so
+ * a client cannot invent its own discount.
+ */
+async function activeCoupon(code: string, orderMinor: number): Promise<CouponRow | null> {
+  const { rows } = await db.query<CouponRow>(
+    `SELECT id, code, kind, value_minor, minimum_order_minor, maximum_discount_minor
+       FROM inventory_coupons
+      WHERE upper(code) = upper($1)
+        AND is_active
+        AND (starts_at IS NULL OR starts_at <= now())
+        AND (ends_at IS NULL OR ends_at > now())
+        AND (max_redemptions IS NULL OR redemption_count < max_redemptions)
+        AND (minimum_order_minor IS NULL OR minimum_order_minor <= $2)
+      LIMIT 1`,
+    [code, orderMinor]
+  );
+  return rows[0] ?? null;
+}
+
+/** A coupon with no rows in `inventory_coupon_items` applies to every product. */
+async function couponCoversProduct(couponId: string, productId: string): Promise<boolean> {
+  const scoped = await db.query(
+    `SELECT 1 FROM inventory_coupon_items WHERE coupon_id = $1 LIMIT 1`,
+    [couponId]
+  );
+  if (!scoped.rowCount) return true;
+
+  const match = await db.query(
+    `SELECT 1 FROM inventory_coupon_items WHERE coupon_id = $1 AND item_id = $2 LIMIT 1`,
+    [couponId, productId]
+  );
+  return Boolean(match.rowCount);
+}
+
+/**
+ * Discount in major units for a single line. Percentage coupons store the
+ * percent in `value_minor` (10 = 10%); fixed coupons store paise.
+ */
+function couponDiscount(coupon: CouponRow, price: number): number {
+  const raw =
+    coupon.kind === 'percentage' ? (price * Number(coupon.value_minor)) / 100 : Number(coupon.value_minor) / 100;
+  const capped =
+    coupon.maximum_discount_minor != null
+      ? Math.min(raw, Number(coupon.maximum_discount_minor) / 100)
+      : raw;
+  const rounded = Math.round(Math.max(0, capped) * 100) / 100;
+  return Math.min(rounded, price);
+}
+
+/** Constant-time HMAC comparison for Razorpay signatures. */
+function signatureMatches(raw: string, provided: string, secret: string): boolean {
+  const expected = createHmac('sha256', secret).update(raw).digest('hex');
+  const a = Buffer.from(expected, 'utf8');
+  const b = Buffer.from(provided, 'utf8');
+  return a.length === b.length && timingSafeEqual(a, b);
+}
+
 const app = new Elysia()
   .use(
     cors({
@@ -168,8 +236,80 @@ const app = new Elysia()
       return { success: false, error: 'Your cart is empty' };
     }
 
+    const payload = await parseBody(request);
+    const shippingAddress =
+      payload.shippingAddress && typeof payload.shippingAddress === 'object'
+        ? (payload.shippingAddress as Record<string, unknown>)
+        : null;
+    const customerName = String(payload.customerName ?? '').trim() || user.name || null;
+    const customerPhone = String(payload.customerPhone ?? '').trim() || null;
+    const promoCodes =
+      payload.promoCodes && typeof payload.promoCodes === 'object'
+        ? (payload.promoCodes as Record<string, string>)
+        : {};
+
     const orderId = randomUUID();
+
+    // First pass: re-validate against inventory at purchase time (stock can move
+    // between adding to cart and checking out) and price the cart at list price.
+    const lines: Array<{ productId: string; quantity: number; price: number }> = [];
+    let grossSubtotal = 0;
+    for (const line of cart) {
+      const response = await fetch(`${inventoryServiceUrl}/products/${line.product.id}`);
+      const productPayload = response.ok
+        ? ((await response.json()) as { success?: boolean; data?: any })
+        : null;
+      const product = productPayload?.data;
+
+      if (!productPayload?.success || !product || !product.isListed) {
+        set.status = 409;
+        return { success: false, error: `${line.product.name} is no longer available` };
+      }
+
+      const available: number | null =
+        product.kind === 'digital'
+          ? product.sellsLicenseKeys
+            ? (product.keysAvailable ?? product.stock ?? 0)
+            : null
+          : (product.stock ?? 0);
+
+      if (available !== null && available < line.quantity) {
+        set.status = 409;
+        return { success: false, error: `Only ${available} of ${line.product.name} left` };
+      }
+
+      const price = Number(line.product.price);
+      grossSubtotal += price * line.quantity;
+      lines.push({ productId: line.product.id, quantity: line.quantity, price });
+    }
+
+    // Promo codes are applied here, not in the browser, so the amount Razorpay
+    // charges always matches what the storefront quoted.
+    const resolvedCoupons = new Map<string, CouponRow>();
+    for (const code of new Set(Object.values(promoCodes).filter(Boolean))) {
+      const coupon = await activeCoupon(String(code), Math.round(grossSubtotal * 100));
+      if (coupon) resolvedCoupons.set(coupon.code.toUpperCase(), coupon);
+    }
+
+    const priced: Array<{ productId: string; quantity: number; price: number }> = [];
+    const appliedPromos: string[] = [];
     let subtotal = 0;
+    for (const line of lines) {
+      let price = line.price;
+      const code = promoCodes[line.productId];
+      const coupon = code ? resolvedCoupons.get(String(code).trim().toUpperCase()) : undefined;
+
+      if (coupon && (await couponCoversProduct(coupon.id, line.productId))) {
+        price = Math.round(Math.max(0, price - couponDiscount(coupon, price)) * 100) / 100;
+        if (!appliedPromos.includes(coupon.code)) appliedPromos.push(coupon.code);
+      }
+
+      subtotal += price * line.quantity;
+      priced.push({ productId: line.productId, quantity: line.quantity, price });
+    }
+    subtotal = Math.round(subtotal * 100) / 100;
+    const tax = Math.round(subtotal * 0.18);
+    const total = subtotal + tax;
 
     // A Pool cannot pin a transaction to one connection via query(), so the
     // whole checkout runs on a dedicated client.
@@ -177,52 +317,53 @@ const app = new Elysia()
     try {
       await client.query('BEGIN');
 
-      for (const line of cart) {
-        // Re-validate against inventory at purchase time: stock can move
-        // between adding to cart and checking out.
-        const response = await fetch(`${inventoryServiceUrl}/products/${line.product.id}`);
-        const payload = response.ok
-          ? ((await response.json()) as { success?: boolean; data?: any })
-          : null;
-        const product = payload?.data;
+      // The order row goes in first: order_items.orderId is a foreign key.
+      await client.query(
+        `INSERT INTO orders (id, "userId", status, total, subtotal, tax, customer_email,
+                             customer_name, shipping_address, notes, "createdAt", "updatedAt")
+         VALUES ($1,$2,'pending',$3,$4,$5,$6,$7,$8,$9,now(),now())`,
+        [
+          orderId,
+          user.sub,
+          total,
+          subtotal,
+          tax,
+          user.email,
+          customerName,
+          shippingAddress
+            ? JSON.stringify({ ...shippingAddress, phone: customerPhone })
+            : null,
+          appliedPromos.length ? `Promo: ${appliedPromos.join(', ')}` : null,
+        ]
+      );
 
-        if (!payload?.success || !product || !product.isListed) {
-          throw new Error(`${line.product.name} is no longer available`);
-        }
-
-        const available: number | null =
-          product.kind === 'digital'
-            ? product.sellsLicenseKeys
-              ? (product.keysAvailable ?? product.stock ?? 0)
-              : null
-            : (product.stock ?? 0);
-
-        if (available !== null && available < line.quantity) {
-          throw new Error(`Only ${available} of ${line.product.name} left`);
-        }
-
-        const price = Number(line.product.price);
-        subtotal += price * line.quantity;
-
+      for (const line of priced) {
         await client.query(
           `INSERT INTO order_items (id, "orderId", "productId", quantity, price)
            VALUES ($1,$2,$3,$4,$5)`,
-          [randomUUID(), orderId, line.product.id, line.quantity, price]
+          [randomUUID(), orderId, line.productId, line.quantity, line.price]
         );
       }
 
-      const tax = Math.round(subtotal * 0.18);
-      const total = subtotal + tax;
-
-      await client.query(
-        `INSERT INTO orders (id, "userId", status, total, subtotal, tax, customer_email, customer_name, "createdAt", "updatedAt")
-         VALUES ($1,$2,'pending',$3,$4,$5,$6,$7,now(),now())`,
-        [orderId, user.sub, total, subtotal, tax, user.email, user.name]
-      );
-
       await client.query('COMMIT');
       set.status = 201;
-      return { success: true, data: { id: orderId, subtotal, tax, total } };
+      return {
+        success: true,
+        data: {
+          id: orderId,
+          subtotal,
+          tax,
+          total,
+          currency: 'INR',
+          appliedPromos,
+          // Priced lines let the receipt mirror exactly what was ordered.
+          items: priced.map((line) => ({
+            productId: line.productId,
+            quantity: line.quantity,
+            price: line.price,
+          })),
+        },
+      };
     } catch (error) {
       await client.query('ROLLBACK');
       set.status = 409;
@@ -308,10 +449,25 @@ const app = new Elysia()
     const requested = Number(payload.amount ?? 0);
     const amount = Math.max(0, Math.min(requested || Number(order.total), Number(order.total)));
 
+    const shipping = (order.shipping_address ?? {}) as Record<string, unknown>;
+    const prefill = {
+      name: order.customer_name ?? undefined,
+      email: order.customer_email ?? undefined,
+      contact: typeof shipping.phone === 'string' ? shipping.phone : undefined,
+    };
+
     if (order.status === 'paid') {
       return {
         success: true,
-        data: { clientSecret: `paid_${order.id}`, paymentIntentId: order.id, paymentMode },
+        data: {
+          orderId: order.id,
+          clientSecret: `paid_${order.id}`,
+          paymentIntentId: order.id,
+          paymentMode,
+          amount: Number(order.total),
+          currency: 'INR',
+          status: 'paid',
+        },
       };
     }
 
@@ -330,9 +486,15 @@ const app = new Elysia()
         return {
           success: true,
           data: {
+            orderId: order.id,
             clientSecret: `${rzpOrder.id}|${amount}`,
             paymentIntentId: rzpOrder.id,
+            razorpayOrderId: rzpOrder.id,
+            keyId: razorpayKeyId,
             paymentMode,
+            amount,
+            currency: 'INR',
+            prefill,
           },
         };
       } catch (error) {
@@ -351,8 +513,72 @@ const app = new Elysia()
 
     return {
       success: true,
-      data: { clientSecret: `mock_${order.id}`, paymentIntentId: order.id, paymentMode },
+      data: {
+        orderId: order.id,
+        clientSecret: `mock_${order.id}`,
+        paymentIntentId: order.id,
+        paymentMode,
+        amount,
+        currency: 'INR',
+        prefill,
+      },
     };
+  })
+  /**
+   * Confirms a completed Razorpay Checkout. The browser hands back the three
+   * fields Razorpay produced; the signature proves they were not forged. The
+   * webhook settles the order too, so this only has to be idempotent.
+   */
+  .post('/payments/verify', async ({ request, set }) => {
+    const user = await verifyNeonRequest(request);
+    if (!user) {
+      set.status = 401;
+      return { success: false, error: 'Authentication required' };
+    }
+
+    const payload = await parseBody(request);
+    const orderId = String(payload.orderId ?? '').trim();
+    const razorpayOrderId = String(payload.razorpayOrderId ?? payload.razorpay_order_id ?? '').trim();
+    const paymentId = String(payload.razorpayPaymentId ?? payload.razorpay_payment_id ?? '').trim();
+    const signature = String(payload.razorpaySignature ?? payload.razorpay_signature ?? '').trim();
+
+    if (!orderId || !razorpayOrderId || !paymentId || !signature) {
+      set.status = 422;
+      return { success: false, error: 'orderId and the Razorpay payment fields are required' };
+    }
+
+    if (!razorpayKeySecret) {
+      set.status = 503;
+      return { success: false, error: 'Razorpay is not configured' };
+    }
+
+    const result = await db.query(`SELECT * FROM orders WHERE id = $1`, [orderId]);
+    const order = result.rows[0];
+    if (!order) {
+      set.status = 404;
+      return { success: false, error: 'Order not found' };
+    }
+    if (order.userId !== user.sub && !(await isAdmin(user.sub))) {
+      set.status = 403;
+      return { success: false, error: 'Not your order' };
+    }
+    if (order.razorpayOrderId && order.razorpayOrderId !== razorpayOrderId) {
+      set.status = 409;
+      return { success: false, error: 'This payment belongs to a different order' };
+    }
+
+    if (!signatureMatches(`${razorpayOrderId}|${paymentId}`, signature, razorpayKeySecret)) {
+      set.status = 400;
+      return { success: false, error: 'Invalid payment signature' };
+    }
+
+    await db.query(`UPDATE orders SET "razorpayPaymentId" = $1, "updatedAt" = now() WHERE id = $2`, [
+      paymentId,
+      orderId,
+    ]);
+    await settleOrder(orderId);
+
+    return { success: true, data: { status: 'completed', orderId, paymentId } };
   })
   .get('/payments/:orderId', async ({ params, request, set }) => {
     const user = await verifyNeonRequest(request);
@@ -385,10 +611,7 @@ const app = new Elysia()
       return { success: false, error: 'Webhook is not configured' };
     }
 
-    const expected = createHmac('sha256', razorpayWebhookSecret).update(raw).digest('hex');
-    const provided = Buffer.from(signature, 'utf8');
-    const wanted = Buffer.from(expected, 'utf8');
-    if (provided.length !== wanted.length || !timingSafeEqual(provided, wanted)) {
+    if (!signatureMatches(raw, signature, razorpayWebhookSecret)) {
       set.status = 401;
       return { success: false, error: 'Invalid signature' };
     }
@@ -404,6 +627,13 @@ const app = new Elysia()
     const orderId = event?.payload?.payment?.entity?.notes?.orderId;
     if (event.event === 'payment.captured' && typeof orderId === 'string') {
       await settleOrder(orderId);
+    } else if (event.event === 'payment.failed' && typeof orderId === 'string') {
+      // Only a still-pending order may fail; a captured one stays paid even if
+      // Razorpay replays an older failure event.
+      await db.query(
+        `UPDATE orders SET status = 'failed', "updatedAt" = now() WHERE id = $1 AND status = 'pending'`,
+        [orderId]
+      );
     }
 
     return { success: true, received: true };
@@ -512,28 +742,15 @@ const app = new Elysia()
     }
 
     // Coupon rules live in inventory_coupons; validation happens server-side so a
-    // client cannot invent its own discount.
-    const coupons = await db.query(
-      `SELECT * FROM inventory_coupons
-        WHERE upper(code) = upper($1)
-          AND is_active
-          AND (starts_at IS NULL OR starts_at <= now())
-          AND (ends_at IS NULL OR ends_at > now())
-          AND (max_redemptions IS NULL OR redemption_count < max_redemptions)
-          AND (minimum_order_minor IS NULL OR minimum_order_minor <= $2)
-        LIMIT 1`,
-      [code, Math.round(originalPrice * 100)]
-    );
+    // client cannot invent its own discount. `/orders` re-checks all of this
+    // before it prices the order.
+    const coupon = await activeCoupon(code, Math.round(originalPrice * 100));
+    if (!coupon || !(await couponCoversProduct(coupon.id, productId))) {
+      return invalid('Invalid or expired promo code');
+    }
 
-    if (!coupons.rowCount) return invalid('Invalid or expired promo code');
-
-    const coupon = coupons.rows[0];
-    const discountAmount =
-      coupon.kind === 'percentage'
-        ? Math.round((originalPrice * coupon.valueMinor) / 100)
-        : Math.min(Math.round(coupon.value_minor / 100), originalPrice);
-
-    const discountedPrice = Math.max(0, originalPrice - discountAmount);
+    const discountAmount = couponDiscount(coupon, originalPrice);
+    const discountedPrice = Math.max(0, Math.round((originalPrice - discountAmount) * 100) / 100);
     const discount = originalPrice > 0 ? Math.round((discountAmount / originalPrice) * 100) : 0;
 
     return {

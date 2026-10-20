@@ -37,21 +37,27 @@ function mapInventoryToFrontend(item: InventoryProduct): FrontendProduct {
     item.sellsLicenseKeys ?? (item.deliveryMode === "license_keys" || item.deliveryMode === "both");
   const units = item.stock ?? 0;
   const inStock = isDigital ? (!sellsKeys || units > 0) : units > 0;
+  // Pre-order is opt-in per product (inventory_items.preorder_enabled).
+  const preorderEnabled = item.preorderEnabled === true;
 
-  const badge = !inStock
-    ? "Coming Soon"
-    : isDigital
-      ? "Instant Download"
-      : units <= 5
-        ? "Low Stock"
-        : "In Stock";
-  const badgeColor = !inStock
-    ? "bg-foreground"
-    : isDigital
-      ? "bg-primary"
-      : units <= 5
-        ? "bg-amber-500"
-        : "bg-accent";
+  const badge = preorderEnabled
+    ? "Pre-Order"
+    : !inStock
+      ? "Sold Out"
+      : isDigital
+        ? "Instant Download"
+        : units <= 5
+          ? "Low Stock"
+          : "In Stock";
+  const badgeColor = preorderEnabled
+    ? "bg-primary"
+    : !inStock
+      ? "bg-foreground"
+      : isDigital
+        ? "bg-primary"
+        : units <= 5
+          ? "bg-amber-500"
+          : "bg-accent";
 
   return {
     id: `inv-${item.id}`,
@@ -67,6 +73,7 @@ function mapInventoryToFrontend(item: InventoryProduct): FrontendProduct {
     badge,
     badgeColor,
     available: item.isListed && inStock,
+    preorderEnabled: item.isListed && preorderEnabled,
     isDigital,
   };
 }
@@ -177,14 +184,17 @@ const ProductsPage = () => {
     
     setPreOrderSubmitting(true);
     try {
-      await createPreOrder({
-        productId: preOrderModalProduct.id.replace("inv-", ""),
-        quantity: preOrderForm.quantity,
-        customerEmail: preOrderForm.email.trim(),
-        customerName: preOrderForm.name.trim(),
-        customerPhone: preOrderForm.phone.trim() || undefined,
-        notes: preOrderForm.notes.trim() || undefined,
-      });
+      await createPreOrder(
+        {
+          productId: preOrderModalProduct.id.replace("inv-", ""),
+          quantity: preOrderForm.quantity,
+          customerEmail: preOrderForm.email.trim(),
+          customerName: preOrderForm.name.trim(),
+          customerPhone: preOrderForm.phone.trim() || undefined,
+          notes: preOrderForm.notes.trim() || undefined,
+        },
+        token
+      );
       
       toast.success("Pre-order placed successfully!", { 
         description: `We've received your pre-order for ${preOrderModalProduct.name}. You'll receive a confirmation email shortly.` 
@@ -303,10 +313,10 @@ const ProductsPage = () => {
                       >
                         {product.badge}
                       </span>
-                      {!product.available && (
+                      {!product.available && !product.preorderEnabled && (
                         <div className="absolute inset-0 bg-foreground/20 backdrop-blur-[1px] flex items-center justify-center">
                           <div className="bg-foreground/90 text-primary-foreground px-6 py-2.5 rounded-full font-display font-black text-sm">
-                            Coming Soon
+                            Sold Out
                           </div>
                         </div>
                       )}
@@ -366,16 +376,34 @@ const ProductsPage = () => {
                       <motion.button
                         whileHover={{ scale: 1.02 }}
                         whileTap={{ scale: 0.98 }}
-                        onClick={() => product.available ? handleAddToCart(product) : handlePreOrder(product)}
-                        disabled={!product.available && preOrderSubmitting}
+                        onClick={() =>
+                          product.preorderEnabled
+                            ? handlePreOrder(product)
+                            : product.available
+                              ? handleAddToCart(product)
+                              : toast.info("Sold out", { description: "We are restocking this item soon." })
+                        }
+                        disabled={product.preorderEnabled && preOrderSubmitting}
                         className={`flex-1 py-2.5 rounded-xl font-display font-bold text-xs flex items-center justify-center gap-1.5 shadow-sm transition-all ${
-                          product.available
-                            ? "bg-accent text-accent-foreground"
-                            : "bg-gradient-cta text-primary-foreground border-[3px] border-foreground shadow-hero"
-                        } ${preOrderSubmitting && !product.available ? "opacity-50" : ""}`}
+                          product.preorderEnabled
+                            ? "bg-gradient-cta text-primary-foreground border-[3px] border-foreground shadow-hero"
+                            : product.available
+                              ? "bg-accent text-accent-foreground"
+                              : "bg-secondary text-muted-foreground"
+                        } ${preOrderSubmitting && product.preorderEnabled ? "opacity-50" : ""}`}
                       >
-                        {preOrderSubmitting && !product.available ? <Loader2 size={15} className="animate-spin" /> : product.available ? <ShoppingCart size={15} /> : <Truck size={15} />}
-                        {product.available ? "Add to Cart" : "Pre Order"}
+                        {preOrderSubmitting && product.preorderEnabled ? (
+                          <Loader2 size={15} className="animate-spin" />
+                        ) : product.preorderEnabled ? (
+                          <Truck size={15} />
+                        ) : (
+                          <ShoppingCart size={15} />
+                        )}
+                        {product.preorderEnabled
+                          ? "Pre Order"
+                          : product.available
+                            ? "Add to Cart"
+                            : "Sold Out"}
                       </motion.button>
                     </div>
                 </motion.div>

@@ -114,6 +114,8 @@ const productFieldsSchema = z.object({
   mrp: z.number().min(0),
   stock: z.number().int().min(0).optional().nullable(),
   isListed: z.boolean().optional(),
+  /** Opt-in: exposes the storefront Pre-order button for this product. */
+  preorderEnabled: z.boolean().optional(),
   kind: z.enum(['physical', 'digital']).optional(),
   deliveryMode: z.enum(['files', 'license_keys', 'both']).optional(),
   downloadLimit: z.number().int().min(1).max(1000).optional().nullable(),
@@ -417,6 +419,7 @@ const app$ = app
     if (p.price !== undefined) add('sale_price_minor', toMinor(p.price));
     if (p.mrp !== undefined) add('mrp_minor', toMinor(p.mrp));
     if (p.isListed !== undefined) add('is_active', p.isListed);
+    if (p.preorderEnabled !== undefined) add('preorder_enabled', p.preorderEnabled);
     if (p.kind !== undefined) add('kind', p.kind);
     if (p.deliveryMode !== undefined) add('delivery_mode', p.deliveryMode);
     if (p.downloadLimit !== undefined) add('download_limit', p.downloadLimit);

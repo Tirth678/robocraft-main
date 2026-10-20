@@ -3,7 +3,7 @@ import { Elysia } from 'elysia';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { getAdminUserId } from './admin-auth';
-import { verifyServiceRequest } from 'shared-utils';
+import { verifyNeonRequest, verifyServiceRequest } from 'shared-utils';
 import {
   deliversFiles,
   deliversKeys,
@@ -458,6 +458,7 @@ function formatItem(row: Record<string, any>): Record<string, any> {
     imageUrl,
     image_url: imageUrl,
     isListed: row.is_active ?? true,
+    preorderEnabled: row.preorder_enabled === true,
     kind,
     deliveryMode: row.delivery_mode ?? 'files',
     downloadLimit: row.download_limit ?? null,
@@ -669,7 +670,7 @@ const app = new Elysia()
       success: true,
       data: {
         product: formatItem(product),
-        canPreOrder: !product.is_active || product.quantity_on_hand === 0,
+        canPreOrder: product.preorder_enabled === true,
       },
     };
   })
@@ -686,6 +687,10 @@ const app = new Elysia()
     const rawBody = await json(request);
     const parsed = preOrderInput.safeParse(rawBody);
     if (!parsed.success) return invalid(set, parsed.error.flatten());
+
+    // Pre-orders stay open to guests, but a signed-in customer's pre-order is
+    // attached to their account so admin can see whose it is and follow up.
+    const user = await verifyNeonRequest(request).catch(() => null);
 
     const input = parsed.data;
     const client = await db.connect();
@@ -704,6 +709,12 @@ const app = new Elysia()
       }
       const product = productResult.rows[0];
 
+      if (!product.preorder_enabled) {
+        await client.query('ROLLBACK');
+        set.status = 409;
+        return { success: false, error: 'This product is not open for pre-orders' };
+      }
+
       // Create pre-order
       const preOrderId = randomUUID();
       const preOrderResult = await client.query(
@@ -711,7 +722,7 @@ const app = new Elysia()
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, now()) RETURNING *`,
         [
           preOrderId,
-          'guest',
+          user?.sub ?? 'guest',
           input.productId,
           input.quantity,
           'pending',

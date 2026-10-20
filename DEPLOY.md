@@ -31,18 +31,32 @@ Only two ingress points, everything else stays on Railway private networking:
 ## Railway setup
 
 One project for the storefront stack, a **separate project** for the admin pair.
-Create one service per deployable and set **Root Directory** to the paths in the
-table — each deployable ships a `railway.json` that Nixpacks picks up from there.
 
-| Root Directory | Service |
-| --- | --- |
-| `apps/api-gateway` | api-gateway |
-| `services/auth-service` | auth-service |
-| `services/inventory-service` | inventory-service |
-| `services/cart-service` | cart-service |
-| `services/billing-service` | billing-service |
-| `services/email-service` | email-service |
-| `services/admin-service` | admin-service (separate project) |
+Create one service per deployable, and for **every** service set:
+
+- **Root Directory** = the repository root (not the service folder). The
+  services import the workspace packages (`shared-utils`, `database`,
+  `shared-types`), so `bun install` has to run once against the workspace —
+  installing inside `services/x` would not resolve `"*"` workspace ranges.
+- **Config-as-code path** = the file in the table below. Because the root is
+  shared, each service points at its own `railway.json` instead of inheriting
+  one from its folder.
+- **Watch paths** = that service's folder plus `packages/**`, so a change to a
+  shared package redeploys its consumers.
+
+| Config file | Service | Start command (already in the file) |
+| --- | --- | --- |
+| `apps/api-gateway/railway.json` | api-gateway | `bun apps/api-gateway/src/index.ts` |
+| `services/auth-service/railway.json` | auth-service | `bun services/auth-service/src/index.ts` |
+| `services/inventory-service/railway.json` | inventory-service | `bun services/inventory-service/src/index.ts` |
+| `services/cart-service/railway.json` | cart-service | `bun services/cart-service/src/index.ts` |
+| `services/billing-service/railway.json` | billing-service | `bun services/billing-service/src/index.ts` |
+| `services/email-service/railway.json` | email-service | `bun services/email-service/src/index.ts` |
+| `services/admin-service/railway.json` | admin-service (separate project) | `bun services/admin-service/src/index.ts` |
+
+Each file runs `bun install --frozen-lockfile` once and then starts the
+TypeScript entrypoint directly, so there is no `dist/` step to drift out of
+sync. Nixpacks detects Bun from the root `bun.lock`.
 
 Add a Redis addon and point `REDIS_URL` at it for cart-service and email-service.
 
@@ -106,6 +120,12 @@ only. admin-service and inventory-service both create their own tables on boot,
 but run migrations explicitly before the first production deploy rather than
 relying on that.
 
+`20261020_orders_legacy_fks.sql` drops the `orders.userId → users` and
+`order_items.productId → products` foreign keys. Those tables were retired in
+favour of Neon Managed Auth and `inventory_items`; while the keys existed, every
+checkout failed with a 409. Run `bun run db:migrate` again after pulling this
+change into an environment that predates it.
+
 ## Frontends
 
 Both are client-only Vite builds, so `VITE_*` values are **baked in at build
@@ -122,6 +142,24 @@ There is one name per setting now: `VITE_INVENTORY_SERVICE_URL` (not
 `VITE_INVENTORY_URL`) and `VITE_BACKEND_URL` (not `VITE_API_URL`). An older
 `VITE_INVENTORY_URL` alias and the `VITE_API_URL` override were removed so a
 deployment cannot silently disagree with itself.
+
+## Storefront on Vercel
+
+`apps/web` is a static Vite build with no server runtime, so it deploys to
+Vercel as-is:
+
+1. Import the repo, set **Root Directory** to `apps/web` (the framework preset
+   is detected as Vite; `apps/web/vercel.json` pins build/output).
+2. Set the environment variables for **Production** and **Preview**:
+   - `VITE_BACKEND_URL` = the Railway gateway origin (`https://api.example.com`)
+   - `VITE_NEON_AUTH_URL` = the Neon Managed Auth base URL
+3. Redeploy after changing any `VITE_*` value — they are inlined at build time.
+4. Add the Vercel domain to `CUSTOMER_FRONTEND_URL` on every Railway service
+   (CORS is an allow-list) and set `ADMIN_DASHBOARD_URL` to the admin console
+   origin so the pre-order emails deep-link correctly.
+
+`apps/admin` is intentionally **not** on Vercel: it must stay behind the staff
+auth + Cloudflare Access described below.
 
 ## Admin isolation
 
@@ -148,3 +186,7 @@ Cookie auth and bcrypt stay as defence in depth rather than the only wall.
       something is unset.
 - [ ] Verify a real Razorpay webhook end to end; until then payments run in
       mock mode.
+- [ ] Verify a sending domain in Resend and set `EMAIL_FROM` to an address on
+      it. Until then Resend's sandbox only delivers to the account owner's
+      address and rejects every customer email with `403 validation_error`
+      (the job now fails loudly instead of silently completing).

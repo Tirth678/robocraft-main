@@ -75,3 +75,6 @@ prisma-8
 
 # TypeScript incremental build info
 *.tsbuildinfo
+
+# Locally rendered email previews
+.preview/

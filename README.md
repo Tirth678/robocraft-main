@@ -65,6 +65,24 @@ cd apps/web
 bun run dev
 ```
 
+### Payments (Razorpay)
+
+Checkout works in two modes, decided by `RAZORPAY_KEY_ID` / `RAZORPAY_KEY_SECRET`:
+
+- **mock** (keys unset) — `POST /api/payments/create-intent` settles the order
+  immediately so the whole flow can be exercised locally with no charges.
+- **razorpay** (keys set) — the backend creates a Razorpay order, the storefront
+  opens Razorpay Checkout (`checkout.razorpay.com/v1/checkout.js`), and the
+  signature is verified by `POST /api/payments/verify` before the order is
+  marked paid.
+
+To go live, set the three Razorpay variables from `.env.example` and point a
+Razorpay webhook at `https://<your-api-host>/api/payments/webhook` with the
+`payment.captured` and `payment.failed` events enabled. The webhook secret must
+be the per-endpoint secret Razorpay shows for that webhook
+(`RAZORPAY_WEBHOOK_SECRET`) — it is not the API key secret. Locally, tunnel the
+API gateway (`ngrok http 8081`) and use the tunnel URL for the webhook.
+
 ### Build
 
 ```bash

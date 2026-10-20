@@ -52,6 +52,7 @@ export function mapProduct(r: Row) {
     imageUrl: Array.isArray(r.image_keys) && r.image_keys.length ? r.image_keys[0] : null,
     isListed: r.is_active === true,
     isActive: r.is_active === true,
+    preorderEnabled: r.preorder_enabled === true,
     createdAt: r.created_at,
     updatedAt: r.updated_at,
   };

@@ -95,8 +95,6 @@ interface OrderConfirmation {
   orderDate: string;
 }
 
-const CREATE_ORDER_URL = getBackendUrl("/api/create-order");
-
 const CheckoutPage = () => {
   useEffect(() => {
     document.title = "Checkout - Secure Payment | RoboCraft Studio";
@@ -114,12 +112,15 @@ const CheckoutPage = () => {
   const navigate = useNavigate();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [orderConfirmation, setOrderConfirmation] = useState<OrderConfirmation | null>(null);
+  // Kept separate from `orderConfirmation`: the receipt page must only appear
+  // once the payment actually settles, not while the payment sheet is open.
+  const [pendingConfirmation, setPendingConfirmation] = useState<OrderConfirmation | null>(null);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
-  const [currentOrderId, setCurrentOrderId] = useState<number | null>(null);
+  const [currentOrderId, setCurrentOrderId] = useState<string | null>(null);
+  const [orderTotal, setOrderTotal] = useState(0);
   const [promoCode, setPromoCode] = useState("");
   const [promoLoading, setPromoLoading] = useState(false);
-  const [promoDiscount, setPromoDiscount] = useState<{ amount: number; code: string } | null>(null);
-  const [appliedPromos, setAppliedPromos] = useState<Record<number, { discount: number; code: string }>>({});
+  const [appliedPromos, setAppliedPromos] = useState<Record<string, { discount: number; code: string }>>({});
 
   const form = useForm<ShippingFormData>({
     resolver: zodResolver(shippingSchema),
@@ -144,45 +145,76 @@ const CheckoutPage = () => {
 
     setIsSubmitting(true);
     try {
-      // Create order
+      // The backend prices the order from the live cart, so shipping details and
+      // promo codes travel with the request instead of being trusted locally.
+      const promoCodes = Object.fromEntries(
+        Object.entries(appliedPromos).map(([productId, promo]) => [productId, promo.code])
+      );
+
       const orderResponse = await fetch(getBackendUrl("/api/orders"), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
+        body: JSON.stringify({
+          customerName: `${data.firstName} ${data.lastName}`,
+          customerPhone: data.phone,
+          shippingAddress: {
+            address: data.address,
+            city: data.city,
+            state: data.state,
+            zipCode: data.zipCode,
+            country: data.country,
+          },
+          promoCodes,
+        }),
       });
 
-      if (!orderResponse.ok) {
-        throw new Error("Failed to create order");
-      }
+      const orderData = await parseJsonSafely<{
+        success?: boolean;
+        data?: {
+          id: string;
+          subtotal: number;
+          tax: number;
+          total: number;
+          appliedPromos?: string[];
+          items?: { productId: string; quantity: number; price: number }[];
+        };
+        error?: string;
+      }>(orderResponse);
 
-      const orderData = await parseJsonSafely<{ success?: boolean; data?: { id: number }; error?: string }>(orderResponse);
-      if (!orderData.success || !orderData.data) {
+      if (!orderResponse.ok || !orderData.success || !orderData.data) {
         throw new Error(getApiErrorMessage(orderData, "We couldn't create your order. Please try again."));
       }
 
-      const orderId = orderData.data.id;
-      setCurrentOrderId(orderId);
-
-      // Calculate total with tax (using discounted total if promo applied)
-      const tax = Math.round(discountedTotal * 0.18);
-      const total = discountedTotal + tax;
-
-      // Show payment modal
+      const order = orderData.data;
+      setCurrentOrderId(order.id);
+      setOrderTotal(order.total);
       setShowPaymentModal(true);
 
-      // Store order confirmation data for later
-      setOrderConfirmation({
-        items: items.map((item) => ({
-          id: item.id,
-          name: item.name,
-          price: item.price,
-          quantity: item.quantity,
-        })),
-        subtotal: Math.round(discountedTotal),
-        tax,
-        total,
+      // The confirmation screen mirrors the server's totals, so a stale promo or
+      // price change never shows an amount we did not charge.
+      const nameFor = (productId: string) =>
+        items.find((item) => (item.productId ?? item.id) === productId)?.name ?? "Item";
+
+      setPendingConfirmation({
+        items: order.items?.length
+          ? order.items.map((line) => ({
+              id: line.productId,
+              name: nameFor(line.productId),
+              price: line.price,
+              quantity: line.quantity,
+            }))
+          : items.map((item) => ({
+              id: item.id,
+              name: item.name,
+              price: item.price,
+              quantity: item.quantity,
+            })),
+        subtotal: order.subtotal,
+        tax: order.tax,
+        total: order.total,
         customerName: `${data.firstName} ${data.lastName}`,
         customerEmail: data.email,
         shippingAddress: {
@@ -192,7 +224,7 @@ const CheckoutPage = () => {
           zipCode: data.zipCode,
           country: data.country,
         },
-        orderId: orderId.toString(),
+        orderId: order.id,
         orderDate: new Date().toLocaleDateString("en-IN", {
           year: "numeric",
           month: "long",
@@ -204,17 +236,21 @@ const CheckoutPage = () => {
       toast.error("Failed to create order", {
         description: getSafeErrorMessage(error, "Please try again later."),
       });
+    } finally {
       setIsSubmitting(false);
     }
   };
 
   const handlePaymentSuccess = async () => {
     setShowPaymentModal(false);
+    if (pendingConfirmation) setOrderConfirmation(pendingConfirmation);
+    setPendingConfirmation(null);
+    setCurrentOrderId(null);
     await clearCart();
     toast.success("Order placed successfully!");
   };
 
-  const handleApplyPromo = async (productId: number) => {
+  const handleApplyPromo = async (productId: string) => {
     if (!promoCode.trim()) {
       toast.error("Enter a promo code");
       return;
@@ -245,7 +281,7 @@ const CheckoutPage = () => {
     }
   };
 
-  const handleRemovePromo = (productId: number) => {
+  const handleRemovePromo = (productId: string) => {
     setAppliedPromos((prev) => {
       const next = { ...prev };
       delete next[productId];
@@ -254,7 +290,7 @@ const CheckoutPage = () => {
   };
 
   const discountedTotal = items.reduce((sum, item) => {
-    const promo = appliedPromos[Number(item.id.replace("product-", ""))];
+    const promo = appliedPromos[item.productId ?? item.id];
     if (promo) {
       const itemTotal = item.price * item.quantity;
       return sum + itemTotal - (itemTotal * promo.discount) / 100;
@@ -358,7 +394,7 @@ const CheckoutPage = () => {
               <div className="bg-card rounded-2xl border border-border p-5 space-y-2">
                 <h3 className="font-display font-bold text-sm text-muted-foreground uppercase tracking-wider">Order Details</h3>
                 <div className="text-sm space-y-1">
-                  <p><span className="text-muted-foreground">Status:</span> <span className="text-accent font-bold">Pending</span></p>
+                  <p><span className="text-muted-foreground">Status:</span> <span className="text-accent font-bold">Paid</span></p>
                   <p><span className="text-muted-foreground">Email:</span> {orderConfirmation.customerEmail}</p>
                   <p><span className="text-muted-foreground">Est. Delivery:</span> 2–3 business days</p>
                 </div>
@@ -549,8 +585,8 @@ const CheckoutPage = () => {
 
               <div className="space-y-4 max-h-80 overflow-y-auto">
                 {items.map((item) => {
-                  const numericId = Number(item.id.replace("product-", ""));
-                  const appliedPromo = appliedPromos[numericId];
+                  const promoKey = item.productId ?? item.id;
+                  const appliedPromo = appliedPromos[promoKey];
                   return (
                     <div key={item.id} className="flex gap-4">
                       <img
@@ -599,8 +635,7 @@ const CheckoutPage = () => {
                     onChange={(e) => setPromoCode(e.target.value.toUpperCase())}
                     onKeyDown={(e) => {
                       if (e.key === "Enter" && items.length > 0) {
-                        const firstId = Number(items[0].id.replace("product-", ""));
-                        handleApplyPromo(firstId);
+                        handleApplyPromo(items[0].productId ?? items[0].id);
                       }
                     }}
                     className="pl-9 text-sm uppercase"
@@ -613,8 +648,7 @@ const CheckoutPage = () => {
                   disabled={promoLoading || !promoCode.trim()}
                   onClick={() => {
                     if (items.length > 0) {
-                      const firstId = Number(items[0].id.replace("product-", ""));
-                      handleApplyPromo(firstId);
+                      handleApplyPromo(items[0].productId ?? items[0].id);
                     }
                   }}
                   className="rounded-lg px-4"
@@ -679,11 +713,13 @@ const CheckoutPage = () => {
         <PaymentModal
           isOpen={showPaymentModal}
           orderId={currentOrderId}
-          amount={orderConfirmation?.total || 0}
+          amount={orderTotal}
           onClose={() => {
             setShowPaymentModal(false);
-            setOrderConfirmation(null);
-            navigate("/");
+            setPendingConfirmation(null);
+            setCurrentOrderId(null);
+            toast.info("Payment cancelled — your order is saved as pending.");
+            navigate("/track-order");
           }}
           onSuccess={handlePaymentSuccess}
         />

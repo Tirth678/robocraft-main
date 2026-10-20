@@ -8,7 +8,8 @@
     "build": "bun build src/index.ts --outdir dist --target bun",
     "start": "bun dist/index.js",
     "lint": "eslint src --ext .ts,.tsx",
-    "clean": "rm -rf dist node_modules"
+    "clean": "rm -rf dist node_modules",
+    "preview:email": "bun --env-file=../../.env run src/preview.ts"
   },
   "dependencies": {
     "elysia": "^1.0.0",

@@ -23,6 +23,8 @@ export interface FrontendProduct {
   badge: string;
   badgeColor: string;
   available: boolean;
+  /** Accepts pre-orders even when stock is available. */
+  preorderEnabled?: boolean;
   isCustom?: boolean;
   /** Digital goods download instantly instead of shipping. */
   isDigital?: boolean;

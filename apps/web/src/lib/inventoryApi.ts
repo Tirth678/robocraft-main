@@ -36,6 +36,8 @@ export interface InventoryProduct {
   /** null means "unlimited" — digital file products are never stocked. */
   stock: number | null;
   isListed: boolean;
+  /** Opt-in flag: this product accepts pre-orders. */
+  preorderEnabled?: boolean;
   createdAt: string;
   updatedAt: string;
   assetsCount?: number;
@@ -286,10 +288,12 @@ export const fetchCategories = () =>
 export const checkPreOrderAvailability = (productId: string) =>
   request<{ product: InventoryProduct; canPreOrder: boolean }>(`/pre-orders/product/${productId}`);
 
-export const createPreOrder = (input: PreOrderCreateInput) =>
+/** The bearer token is optional, but it ties the pre-order to the account. */
+export const createPreOrder = (input: PreOrderCreateInput, token?: string | null) =>
   request<{ id: string }>("/pre-orders", {
     method: "POST",
     body: JSON.stringify(input),
+    token,
   });
 
 /** Public, token-gated claim payload — no Authorization header involved. */

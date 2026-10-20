@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, ReactNode, useCallback } from "react";
+import { createContext, useContext, useState, useEffect, ReactNode, useCallback } from "react";
 import { useAuth } from "./AuthContext";
 import { getBackendUrl } from "@/lib/backend";
 import { resolveMediaUrl } from "@/lib/inventoryApi";
@@ -82,6 +82,17 @@ export const CartProvider = ({ children }: { children: ReactNode }) => {
       setIsLoading(false);
     }
   }, [isAuthenticated, token]);
+
+  // The cart lives in cart-service, so it has to be re-read whenever the
+  // session changes — otherwise a reload shows an empty cart and checkout
+  // refuses to start even though the server still has the items.
+  useEffect(() => {
+    if (isAuthenticated && token) {
+      void syncCart();
+    } else {
+      setItems([]);
+    }
+  }, [isAuthenticated, token, syncCart]);
 
   const addToCart = async (item: Omit<CartItem, "quantity">) => {
     if (!isAuthenticated || !token) {

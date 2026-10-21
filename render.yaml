@@ -1,0 +1,62 @@
+# Render Blueprint: the whole RoboCraft backend as ONE web service.
+#
+# The Docker image runs all seven services (scripts/start-backend.sh): the
+# gateway takes Render's public $PORT and health-checks at /health; auth,
+# inventory, cart, billing, email and admin bind private ports inside the
+# container, so the private topology from DEPLOY.md still holds — the browser
+# only ever talks to the gateway (/api/*, /inventory/*) or, for staff, the
+# /admin-api/* path that the Vercel admin console proxies here.
+#
+# Secrets below (sync: false) are prompted for on the first Blueprint sync —
+# copy the values from .env or your password manager. Everything else has a
+# safe default.
+services:
+  - type: web
+    name: robocraft-backend
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        sync: false # Neon Lakebase pooled URL
+      - key: NEON_AUTH_BASE_URL
+        sync: false
+      - key: NEON_AUTH_JWKS_URL
+        sync: false
+      # auth-service's sign-out client reads the VITE_-prefixed name server-side;
+      # same value as NEON_AUTH_BASE_URL.
+      - key: VITE_NEON_AUTH_URL
+        sync: false
+      - key: AWS_ACCESS_KEY_ID
+        sync: false # Neon Object Storage (S3-compatible)
+      - key: AWS_SECRET_ACCESS_KEY
+        sync: false
+      - key: AWS_ENDPOINT_URL_S3
+        sync: false
+      - key: AWS_REGION
+        value: us-east-2
+      - key: INVENTORY_STORAGE_BUCKET
+        value: productimages
+      - key: INTERNAL_SERVICE_SECRET
+        sync: false # openssl rand -hex 32
+      - key: RESEND_API_KEY
+        sync: false
+      - key: EMAIL_FROM
+        value: RoboCraft <onboarding@resend.dev>
+      - key: ADMIN_EMAILS
+        value: admin@robocraft.com,tirth@robocraft.com
+      # CORS allow-list + admin deep links in email. Put the real Vercel origins
+      # here once the frontends are deployed (they can be edited in the
+      # dashboard later — no redeploy of the image needed for env changes).
+      - key: CUSTOMER_FRONTEND_URL
+        sync: false # e.g. https://robocraft-web.vercel.app
+      - key: ADMIN_DASHBOARD_URL
+        sync: false # e.g. https://robocraft-admin.vercel.app
+      # Public origin of /inventory — digital-delivery links in transactional
+      # email are built from it. Set to https://<this service domain>/inventory
+      # after the first deploy gives the service its final URL.
+      - key: INVENTORY_PUBLIC_URL
+        sync: false

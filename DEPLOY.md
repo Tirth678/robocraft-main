@@ -13,13 +13,13 @@ apps/web  ──(VITE_BACKEND_URL)──▶  apps/api-gateway :8081
 
 apps/admin (Vercel) ──/admin-api/* (same-origin rewrite)──▶ admin-service :3007
                           └─▶ email-service :3005 + Redis   (internal, worker)
+```
 
 The admin console proxies `/admin-api/*` to admin-service from its own origin
 (`apps/admin/vercel.json`), so the session cookie stays first-party and
 `SameSite=Strict` keeps working. Do not point the console at the absolute
 admin-service origin from Vercel — that is a cross-site call and the cookie
 would never be sent.
-```
 
 The gateway exists so the storefront makes same-origin calls; that is why
 `VITE_BACKEND_URL` points at it rather than at each service.
@@ -41,9 +41,36 @@ doesn't skip payments, it breaks checkout. Deploy it with the Razorpay vars
 unset and it runs in `paymentMode: "mock"` (settles without charging), which is
 the supported way to go live before payments are configured.
 
+## Render (single-container deploy)
+
+`Dockerfile` + `render.yaml` run the whole backend as **one** Render web
+service: `scripts/start-backend.sh` starts all seven processes in the same
+container — the gateway on Render's public `$PORT`, the other six on private
+container ports nothing outside can reach. That preserves the topology above
+(the browser only ever talks to the gateway) while fitting Render's free tier.
+`/admin-api/*` is routed by the gateway to admin-service so the Vercel admin
+colonsole can proxy to the single public origin.
+
+- Connect the GitHub repo in the Render dashboard → **New + → Blueprint** →
+  pick the repo; Render reads `render.yaml`, prompts for the `sync: false`
+  secrets (copy from `.env`), and builds the image (Bun install, no dist step).
+- After the first deploy, set `INVENTORY_PUBLIC_URL` to
+  `https://<service-domain>/inventory` and point `CUSTOMER_FRONTEND_URL` /
+  `ADMIN_DASHBOARD_URL` at the Vercel origins (CORS allow-list).
+- No Redis is attached: cart falls back to in-memory carts and pre-order emails
+  queue-fail loudly (orders still succeed). Attach a free Upstash/Redis Cloud
+  instance via `REDIS_URL` to enable both.
+- The free plan's 512 MB is enough for the seven Bun processes but not by a
+  wide margin — if the container is OOM-killed, move the service to a paid
+  instance type.
+
+The multi-service Railway layout below remains the reference topology (and the
+path if the project outgrows one container).
+
 ## Railway setup
 
-One project for the storefront stack, a **separate project** for the admin pair.
+One project for the storefront stack, a **separate project** for admin-service
+(the admin console itself lives on Vercel — see Frontends on Vercel).
 
 Create one service per deployable, and for **every** service set:
 

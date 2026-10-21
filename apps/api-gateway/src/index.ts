@@ -20,6 +20,10 @@ const inventoryServiceUrl = target('INVENTORY_SERVICE_URL', 3002);
 const cartServiceUrl = target('CART_SERVICE_URL', 3003);
 const billingServiceUrl = target('BILLING_SERVICE_URL', 3004);
 const authServiceUrl = target('AUTH_SERVICE_URL', 3001);
+// The admin console (a static host) proxies /admin-api/* to this gateway so its
+// session cookie stays first-party; single-container deploys keep admin-service
+// on a private port and this is its only way out.
+const adminServiceUrl = target('ADMIN_SERVICE_URL', 3007);
 
 interface Route {
   /** Longest public path that selects this route. */
@@ -33,6 +37,12 @@ interface Route {
 /** Longest prefix wins, so `/api/products/validate-promo` beats `/api/products`. */
 const routes: Route[] = [
   { prefix: '/api/cart', mount: '/api', base: cartServiceUrl, service: 'cart-service' },
+  {
+    prefix: '/admin-api',
+    mount: '/admin-api',
+    base: adminServiceUrl,
+    service: 'admin-service',
+  },
   { prefix: '/api/orders', mount: '/api', base: billingServiceUrl, service: 'billing-service' },
   {
     prefix: '/api/create-order',

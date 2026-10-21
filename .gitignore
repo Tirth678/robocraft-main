@@ -78,3 +78,5 @@ prisma-8
 
 # Locally rendered email previews
 .preview/
+.specific
+specific.local

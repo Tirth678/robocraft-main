@@ -11,8 +11,14 @@ apps/web  ──(VITE_BACKEND_URL)──▶  apps/api-gateway :8081
                                      ├─▶ auth-service      :3001
                                      └─▶ inventory-service :3002
 
-apps/admin ──(cookie)──▶ admin-service :3007          (behind Cloudflare Access)
+apps/admin (Vercel) ──/admin-api/* (same-origin rewrite)──▶ admin-service :3007
                           └─▶ email-service :3005 + Redis   (internal, worker)
+
+The admin console proxies `/admin-api/*` to admin-service from its own origin
+(`apps/admin/vercel.json`), so the session cookie stays first-party and
+`SameSite=Strict` keeps working. Do not point the console at the absolute
+admin-service origin from Vercel — that is a cross-site call and the cookie
+would never be sent.
 ```
 
 The gateway exists so the storefront makes same-origin calls; that is why
@@ -27,6 +33,13 @@ Only two ingress points, everything else stays on Railway private networking:
 | yes | `apps/api-gateway` | storefront calls it |
 | yes | `services/billing-service` | Razorpay posts webhooks to `/payments/webhook` |
 | no | cart, auth, inventory, email, admin-service | reached only via the gateway or admin-service |
+
+**billing-service can stay deployed without Razorpay keys.** Order creation
+(`POST /api/orders`), promo validation, payment intents and order tracking all
+live behind gateway routes to billing-service — skipping the deployable
+doesn't skip payments, it breaks checkout. Deploy it with the Razorpay vars
+unset and it runs in `paymentMode: "mock"` (settles without charging), which is
+the supported way to go live before payments are configured.
 
 ## Railway setup
 
@@ -85,7 +98,11 @@ every service honours it — do not hardcode a port.
 **api-gateway** — `DATABASE_URL`, `INTERNAL_SERVICE_SECRET`, `AUTH_SERVICE_URL`,
 `INVENTORY_SERVICE_URL`, `CART_SERVICE_URL`, `BILLING_SERVICE_URL`
 
-**auth-service** — `ADMIN_EMAILS`
+**auth-service** — `ADMIN_EMAILS`, `NEON_AUTH_JWKS_URL`, `NEON_AUTH_BASE_URL`.
+  The JWKS/issuer are read at module load and **throw if unset**, so the service
+  crash-loops on Railway without them. `VITE_NEON_AUTH_URL` (same value the
+  storefront uses) points the sign-out call at the right Neon Auth base; it is
+  optional but should be set so it doesn't fall back to a hardcoded URL.
 
 **inventory-service** — `DATABASE_URL`, `AWS_ACCESS_KEY_ID`,
 `AWS_SECRET_ACCESS_KEY`, `AWS_ENDPOINT_URL_S3`, `AWS_REGION`,
@@ -138,19 +155,24 @@ time** — each environment needs its own build.
 - `apps/web` → any static host. Build with `VITE_NEON_AUTH_URL` and
   `VITE_BACKEND_URL` (the gateway). `VITE_INVENTORY_SERVICE_URL` is only needed
   if the storefront is to bypass the gateway and call inventory directly.
-- `apps/admin` → static host, separate project. Leave `VITE_ADMIN_SERVICE_URL`
-  unset when a dev-style proxy or same-origin path is in front of admin-service;
-  otherwise set it to the absolute admin-service origin.
+- `apps/admin` → Vercel, separate project (Root Directory `apps/admin`).
+  `apps/admin/vercel.json` pins build/output, adds the SPA fallback and rewrites
+  `/admin-api/*` to admin-service — **edit that rewrite's destination to your
+  admin-service Railway URL before deploying** (it is a literal placeholder;
+  Vercel rewrites cannot read env vars). Leave `VITE_ADMIN_SERVICE_URL` unset so
+  the app calls the same-origin proxy; only set it to an absolute origin if you
+  deliberately move API calls off the proxy, which then requires changing the
+  cookie to `SameSite=None` — don't.
 
 There is one name per setting now: `VITE_INVENTORY_SERVICE_URL` (not
 `VITE_INVENTORY_URL`) and `VITE_BACKEND_URL` (not `VITE_API_URL`). An older
 `VITE_INVENTORY_URL` alias and the `VITE_API_URL` override were removed so a
 deployment cannot silently disagree with itself.
 
-## Storefront on Vercel
+## Frontends on Vercel
 
-`apps/web` is a static Vite build with no server runtime, so it deploys to
-Vercel as-is:
+Both apps are static Vite builds with no server runtime, so each deploys to
+Vercel as its own project.
 
 1. Import the repo, set **Root Directory** to `apps/web` (the framework preset
    is detected as Vite; `apps/web/vercel.json` pins build/output).
@@ -162,16 +184,27 @@ Vercel as-is:
    (CORS is an allow-list) and set `ADMIN_DASHBOARD_URL` to the admin console
    origin so the pre-order emails deep-link correctly.
 
-`apps/admin` is intentionally **not** on Vercel: it must stay behind the staff
-auth + Cloudflare Access described below.
+For `apps/admin` (separate Vercel project, Root Directory `apps/admin`):
+
+1. Set the rewrite destination in `apps/admin/vercel.json` to the deployed
+   admin-service URL (one-time edit — see the Frontends section above).
+2. Environment variables for Production and Preview:
+   - `VITE_STOREFRONT_URL` = the deployed storefront origin (the console loads
+     seeded `/assets/*` product images from there; without it images 404)
+   - leave `VITE_ADMIN_SERVICE_URL` and `VITE_BACKEND_URL` unset (same-origin
+     `/admin-api` proxy)
+3. On admin-service set `ADMIN_ALLOWED_ORIGINS` to the admin Vercel origin and
+   `ADMIN_COOKIE_SECURE=true`.
+4. Keep the console behind Cloudflare Access (email allowlist) as below — the
+   static host itself is public, Access is the wall.
 
 ## Admin isolation
 
 admin-service is an internet-facing API protected by a password alone, which is
 the weakest option. Put both admin surfaces behind Cloudflare Access:
 
-1. Deploy `apps/admin` (static) and `services/admin-service` in their own
-   Railway project.
+1. Deploy `apps/admin` on Vercel (project of its own) and `services/admin-service`
+   in its own Railway project.
 2. Put both hostnames behind a Cloudflare Zero Trust Access policy (email
    allowlist).
 3. Set `ADMIN_ALLOWED_ORIGINS` to the admin origin and `ADMIN_COOKIE_SECURE=true`.

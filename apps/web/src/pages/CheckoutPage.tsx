@@ -666,7 +666,7 @@ const CheckoutPage = () => {
                         <Tag size={10} /> {promo.code} (-{promo.discount}%)
                       </span>
                       <button
-                        onClick={() => handleRemovePromo(Number(pid))}
+                        onClick={() => handleRemovePromo(pid)}
                         className="text-muted-foreground hover:text-destructive transition-colors"
                       >
                         <X size={12} />

@@ -107,7 +107,7 @@ const AdminDashboardContent = () => {
 
   return (
     <AdminLayout>
-      <div className="p-8">
+      <div className="p-4 sm:p-6 lg:p-8">
         <div className="mb-8 flex flex-wrap items-center justify-between gap-4">
           <div>
             <h1 className="text-3xl font-black tracking-tight">Dashboard</h1>

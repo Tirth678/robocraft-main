@@ -29,7 +29,9 @@ import {
   supportsSignedUrls,
 } from './storage';
 
-const port = Number(process.env.PORT ?? 3002);
+// `||` not `??`: an empty or zero PORT (some dev harnesses export PORT=0) would
+// otherwise bind an ephemeral port the gateway never finds.
+const port = Number(process.env.PORT) || 3002;
 const emailServiceUrl = process.env.EMAIL_SERVICE_URL || 'http://localhost:3005';
 
 /** Public origin used for links that land in customer emails. */
@@ -423,6 +425,37 @@ async function json(request: Request): Promise<unknown> {
   return request.json().catch(() => null);
 }
 
+/**
+ * Hand a pre-order to email-service for fan-out onto the BullMQ queue.
+ *
+ * Bounded by a timeout and never throws: the pre-order is already committed, so
+ * a mail outage must not turn into a failed order. The caller reports the
+ * outcome instead of silently dropping it.
+ */
+async function queuePreOrderEmails(payload: unknown): Promise<{ queued: boolean; error?: string }> {
+  try {
+    const response = await fetch(`${emailServiceUrl}/send-pre-order-emails`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+      signal: AbortSignal.timeout(5000),
+    });
+
+    if (!response.ok) {
+      const body = (await response.json().catch(() => null)) as { error?: string } | null;
+      const error = body?.error || `email-service responded ${response.status}`;
+      console.error('[INVENTORY] Pre-order email queueing failed:', error);
+      return { queued: false, error };
+    }
+
+    return { queued: true };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error('[INVENTORY] Failed to reach email-service:', message);
+    return { queued: false, error: message };
+  }
+}
+
 async function admin(request: Request): Promise<string | null> {
   return getAdminUserId(request);
 }
@@ -761,15 +794,16 @@ const app = new Elysia()
         },
       };
 
-      // Fire and forget - don't wait for email service
-      fetch(`${emailServiceUrl}/send-pre-order-emails`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(emailPayload),
-      }).catch((err) => console.error('[INVENTORY] Failed to queue pre-order emails:', err));
+      // Queue the confirmation emails. A dead email service must not fail the
+      // pre-order, but the result is reported so the storefront can tell the
+      // customer whether to expect a confirmation.
+      const emailResult = await queuePreOrderEmails(emailPayload);
 
       set.status = 201;
-      return { success: true, data: preOrderResult.rows[0] };
+      return {
+        success: true,
+        data: { ...preOrderResult.rows[0], emailQueued: emailResult.queued, emailError: emailResult.error },
+      };
     } catch (error) {
       await client.query('ROLLBACK');
       console.error('Pre-order creation error:', error);

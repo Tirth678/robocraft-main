@@ -9,7 +9,9 @@
 import { cors } from '@elysiajs/cors';
 import { Elysia } from 'elysia';
 
-const port = Number(process.env.PORT ?? 8081);
+// `||` not `??`: an empty or zero PORT (some dev harnesses export PORT=0) would
+// otherwise bind an ephemeral port the storefront never finds.
+const port = Number(process.env.PORT) || 8081;
 
 const target = (name: string, fallbackPort: number) =>
   (process.env[name] || `http://localhost:${fallbackPort}`).replace(/\/+$/, '');

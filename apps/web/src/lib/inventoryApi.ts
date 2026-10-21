@@ -290,7 +290,12 @@ export const checkPreOrderAvailability = (productId: string) =>
 
 /** The bearer token is optional, but it ties the pre-order to the account. */
 export const createPreOrder = (input: PreOrderCreateInput, token?: string | null) =>
-  request<{ id: string }>("/pre-orders", {
+  request<{
+    id: string;
+    /** False when inventory-service could not hand the mail to email-service. */
+    emailQueued?: boolean;
+    emailError?: string;
+  }>("/pre-orders", {
     method: "POST",
     body: JSON.stringify(input),
     token,

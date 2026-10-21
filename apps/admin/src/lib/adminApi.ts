@@ -192,10 +192,26 @@ const adminUrl = (path: string) => {
   return getBackendUrl(`/admin-api${path}`);
 };
 
+/**
+ * Storefront origin that serves the bundled `/assets/*` images.
+ *
+ * Seeded products point at static files shipped with the storefront, not at
+ * object storage, so the console has to reach them over HTTP. Configure
+ * `VITE_STOREFRONT_URL` when the console and storefront live on different
+ * hosts; in dev both run locally.
+ */
+const storefrontBase = (
+  (import.meta.env.VITE_STOREFRONT_URL as string | undefined)?.trim() ||
+  (import.meta.env.DEV ? "http://localhost:8080" : "")
+).replace(/\/+$/, "");
+
 /** Object keys must be routed through a service that streams them. */
 export const resolveMediaUrl = (keyOrUrl: string | null | undefined): string => {
   if (!keyOrUrl) return "";
-  if (/^https?:\/\//i.test(keyOrUrl) || keyOrUrl.startsWith("/")) return keyOrUrl;
+  if (/^https?:\/\//i.test(keyOrUrl)) return keyOrUrl;
+  // Bundled storefront assets live outside the storage bucket.
+  if (keyOrUrl.startsWith("/assets/")) return `${storefrontBase}${keyOrUrl}`;
+  if (keyOrUrl.startsWith("/")) return keyOrUrl;
   return adminUrl(`/media?key=${encodeURIComponent(keyOrUrl)}`);
 };
 

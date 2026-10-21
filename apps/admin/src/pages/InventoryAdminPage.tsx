@@ -180,7 +180,7 @@ const InventoryAdminContent = () => {
 
   return (
     <AdminLayout>
-      <div className="p-8">
+      <div className="p-4 sm:p-6 lg:p-8">
         <div className="mb-8 flex flex-wrap items-start justify-between gap-4">
           <div>
             <h1 className="text-2xl font-black tracking-tight">INVENTORY</h1>

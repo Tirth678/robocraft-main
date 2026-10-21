@@ -134,7 +134,7 @@ const AdminSalesPage = () => {
   return (
     <RequireAdmin>
     <AdminLayout>
-      <div className="p-8">
+      <div className="p-4 sm:p-6 lg:p-8">
         {/* Header */}
         <div className="flex items-center justify-between mb-8">
           <div>
@@ -374,7 +374,7 @@ const AdminSalesPage = () => {
               </h3>
             </div>
             <div className="overflow-x-auto">
-              <table className="w-full text-left">
+              <table className="w-full min-w-[760px] text-left">
                 <thead className="bg-white/5">
                   <tr>
                     <th className="px-6 py-3 text-[10px] font-black uppercase tracking-[0.2em] text-white/30">

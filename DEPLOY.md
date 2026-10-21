@@ -104,7 +104,11 @@ every service honours it — do not hardcode a port.
   secret. Without Razorpay keys the service reports `paymentMode: "mock"` and
   settles intents without charging.
 
-**email-service** — `REDIS_URL`, `RESEND_API_KEY`, `ADMIN_EMAILS`
+**email-service** — `REDIS_URL`, `RESEND_API_KEY`, `EMAIL_FROM`, `ADMIN_EMAILS`.
+  `EMAIL_REDIRECT_TO` is a local/staging convenience: when set, every message is
+  delivered to that address instead of the real recipient (the original
+  recipient is kept in the subject and `Reply-To`). Leave it **unset** in
+  production — pre-orders must reach the customer's own address.
 
 **admin-service** — `DATABASE_URL`, `ADMIN_ALLOWED_ORIGINS` (the deployed admin
   origin — without it a deployed console is rejected by CORS), `ADMIN_COOKIE_SECURE=true`,
@@ -190,3 +194,5 @@ Cookie auth and bcrypt stay as defence in depth rather than the only wall.
       it. Until then Resend's sandbox only delivers to the account owner's
       address and rejects every customer email with `403 validation_error`
       (the job now fails loudly instead of silently completing).
+- [ ] Confirm `EMAIL_REDIRECT_TO` is **unset** in production after the domain is
+      verified, otherwise every customer confirmation goes to that one inbox.

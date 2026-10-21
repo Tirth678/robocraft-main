@@ -184,7 +184,7 @@ const ProductsPage = () => {
     
     setPreOrderSubmitting(true);
     try {
-      await createPreOrder(
+      const result = await createPreOrder(
         {
           productId: preOrderModalProduct.id.replace("inv-", ""),
           quantity: preOrderForm.quantity,
@@ -195,10 +195,17 @@ const ProductsPage = () => {
         },
         token
       );
-      
-      toast.success("Pre-order placed successfully!", { 
-        description: `We've received your pre-order for ${preOrderModalProduct.name}. You'll receive a confirmation email shortly.` 
-      });
+
+      const email = preOrderForm.email.trim();
+      if (result.emailQueued === false) {
+        toast.success("Pre-order placed", {
+          description: `We saved your pre-order for ${preOrderModalProduct.name}, but the confirmation email could not be sent. Our team will follow up at ${email}.`,
+        });
+      } else {
+        toast.success("Pre-order placed successfully!", {
+          description: `We've received your pre-order for ${preOrderModalProduct.name}. A confirmation email is on its way to ${email}.`,
+        });
+      }
       
       setPreOrderModalProduct(null);
       setPreOrderForm({ name: "", email: "", phone: "", quantity: 1, notes: "" });

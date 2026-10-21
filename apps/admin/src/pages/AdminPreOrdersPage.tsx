@@ -25,7 +25,7 @@ import { getSafeErrorMessage } from "@/lib/apiErrors";
 import { useAuth } from "@/contexts/AdminAuthContext";
 import AdminLayout from "@/components/AdminLayout";
 import RequireAdmin from "@/components/RequireAdmin";
-import { fetchAdminPreOrders, fetchAdminPreOrder, updateAdminPreOrder, cancelAdminPreOrder, type PreOrder, type PreOrderPage } from "@/lib/adminApi";
+import { fetchAdminPreOrders, fetchAdminPreOrder, updateAdminPreOrder, cancelAdminPreOrder, resolveMediaUrl, type PreOrder, type PreOrderPage } from "@/lib/adminApi";
 import { AnimatePresence, motion } from "framer-motion";
 
 // Must stay in step with PRE_ORDER_STATUSES in services/admin-service/src/index.ts.
@@ -76,6 +76,46 @@ const getStatusIcon = (status: string): JSX.Element => {
 };
 
 const ITEMS_PER_PAGE = 20;
+
+/**
+ * Product thumbnail with a graceful fallback.
+ *
+ * Keys go through `resolveMediaUrl` (object storage is not served by the admin
+ * origin), and a missing/broken image collapses into a neutral tile instead of
+ * the browser's broken-image glyph.
+ */
+const ProductThumb = ({
+  src,
+  name,
+  className,
+}: {
+  src: string | null | undefined;
+  name: string;
+  className?: string;
+}) => {
+  const [failed, setFailed] = useState(false);
+  const url = resolveMediaUrl(src);
+
+  if (!url || failed) {
+    return (
+      <div
+        className={`${className ?? ""} flex shrink-0 items-center justify-center bg-white/5 text-white/25`}
+        aria-hidden
+      >
+        <Package size={16} />
+      </div>
+    );
+  }
+
+  return (
+    <img
+      src={url}
+      alt={name}
+      className={`${className ?? ""} shrink-0 object-cover`}
+      onError={() => setFailed(true)}
+    />
+  );
+};
 
 const AdminPreOrdersPage = () => {
   const navigate = useNavigate();
@@ -257,7 +297,7 @@ const AdminPreOrdersPage = () => {
   return (
     <RequireAdmin>
       <AdminLayout>
-      <div className="p-8">
+      <div className="p-4 sm:p-6 lg:p-8">
         <div className="mb-8 flex flex-wrap items-center justify-between gap-4">
           <div>
             <h1 className="text-3xl font-black tracking-tight">Pre-Orders</h1>
@@ -299,20 +339,104 @@ const AdminPreOrdersPage = () => {
           </select>
         </div>
 
-        {/* Pre-Orders Table */}
-        <div className="rounded-2xl border border-white/10 bg-white/[0.03] overflow-hidden">
+        {/* Mobile: stacked cards. An 8-column table cannot be read on a phone. */}
+        <div className="space-y-3 md:hidden">
+          {preOrders.length === 0 ? (
+            <div className="rounded-2xl border border-white/10 bg-white/[0.03] px-6 py-16 text-center text-white/30">
+              <Package size={40} className="mx-auto mb-4 opacity-30" />
+              <p className="text-sm font-bold">No pre-orders found</p>
+              <p className="mt-1 text-xs">Pre-orders will appear here once customers place them</p>
+            </div>
+          ) : (
+            preOrders.map((preOrder) => (
+              <div
+                key={preOrder.id}
+                className="rounded-2xl border border-white/10 bg-white/[0.03] p-4"
+              >
+                <div className="mb-3 flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <code className="whitespace-nowrap text-sm font-mono font-bold text-white">
+                      #{preOrder.id.slice(0, 8).toUpperCase()}
+                    </code>
+                    <p className="mt-1 truncate text-sm font-bold text-white">
+                      {preOrder.customerName || "Guest"}
+                    </p>
+                    <p className="truncate text-xs text-white/50">{preOrder.customerEmail}</p>
+                  </div>
+                  <span
+                    className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-bold ${badgeStyle(preOrder.status)}`}
+                  >
+                    {getStatusIcon(preOrder.status)}
+                    {configFor(preOrder.status).label}
+                  </span>
+                </div>
+
+                <div className="mb-3 flex items-center gap-3 border-t border-white/5 pt-3">
+                  <ProductThumb
+                    src={preOrder.product.imageUrl}
+                    name={preOrder.product.name}
+                    className="h-10 w-10 rounded-lg"
+                  />
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-bold text-white">{preOrder.product.name}</p>
+                    <p className="text-xs text-white/40">{preOrder.product.sku}</p>
+                  </div>
+                  <div className="shrink-0 text-right">
+                    <p className="text-sm font-bold text-white">
+                      {formatCurrency(preOrder.totalAmount)}
+                    </p>
+                    <p className="text-xs text-white/40">Qty {preOrder.quantity}</p>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between gap-3 border-t border-white/5 pt-3">
+                  <span className="text-xs text-white/50">{formatDate(preOrder.createdAt)}</span>
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => setSelectedPreOrder(preOrder)}
+                      className="rounded-lg p-2 text-white/50 transition-colors hover:bg-white/10 hover:text-white"
+                      title="View"
+                      aria-label={`View pre-order ${preOrder.id.slice(0, 8)}`}
+                    >
+                      <Eye size={16} />
+                    </button>
+                    <button
+                      onClick={() => {
+                        setEditingPreOrder(preOrder);
+                        setEditForm({
+                          status: "",
+                          customerName: preOrder.customerName || "",
+                          customerPhone: preOrder.customerPhone || "",
+                          notes: preOrder.notes || "",
+                        });
+                      }}
+                      className="rounded-lg p-2 text-white/50 transition-colors hover:bg-white/10 hover:text-white"
+                      title="Edit"
+                      aria-label={`Edit pre-order ${preOrder.id.slice(0, 8)}`}
+                    >
+                      <Edit size={16} />
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+
+        {/* Pre-Orders Table (md and up) */}
+        <div className="hidden overflow-hidden rounded-2xl border border-white/10 bg-white/[0.03] md:block">
           <div className="overflow-x-auto">
-            <table className="w-full">
+            <table className="w-full min-w-[760px]">
               <thead>
                 <tr className="border-b border-white/10">
-                  <th className="px-6 py-4 text-left text-[10px] font-black uppercase tracking-[0.2em] text-white/30">Order ID</th>
-                  <th className="px-6 py-4 text-left text-[10px] font-black uppercase tracking-[0.2em] text-white/30">Customer</th>
-                  <th className="px-6 py-4 text-left text-[10px] font-black uppercase tracking-[0.2em] text-white/30">Product</th>
-                  <th className="px-6 py-4 text-center text-[10px] font-black uppercase tracking-[0.2em] text-white/30">Qty</th>
-                  <th className="px-6 py-4 text-right text-[10px] font-black uppercase tracking-[0.2em] text-white/30">Total</th>
-                  <th className="px-6 py-4 text-center text-[10px] font-black uppercase tracking-[0.2em] text-white/30">Status</th>
-                  <th className="px-6 py-4 text-center text-[10px] font-black uppercase tracking-[0.2em] text-white/30">Date</th>
-                  <th className="px-6 py-4 text-center text-[10px] font-black uppercase tracking-[0.2em] text-white/30">Actions</th>
+                  <th className="px-3 py-4 text-left text-[10px] font-black uppercase tracking-[0.2em] text-white/30">Order ID</th>
+                  <th className="px-3 py-4 text-left text-[10px] font-black uppercase tracking-[0.2em] text-white/30">Customer</th>
+                  <th className="px-3 py-4 text-left text-[10px] font-black uppercase tracking-[0.2em] text-white/30">Product</th>
+                  <th className="px-3 py-4 text-center text-[10px] font-black uppercase tracking-[0.2em] text-white/30">Qty</th>
+                  <th className="px-3 py-4 text-right text-[10px] font-black uppercase tracking-[0.2em] text-white/30">Total</th>
+                  <th className="px-3 py-4 text-center text-[10px] font-black uppercase tracking-[0.2em] text-white/30">Status</th>
+                  <th className="px-3 py-4 text-center text-[10px] font-black uppercase tracking-[0.2em] text-white/30">Date</th>
+                  <th className="px-3 py-4 text-center text-[10px] font-black uppercase tracking-[0.2em] text-white/30">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/5">
@@ -327,40 +451,38 @@ const AdminPreOrdersPage = () => {
                 ) : (
                   preOrders.map((preOrder) => (
                     <tr key={preOrder.id} className="hover:bg-white/[0.02] cursor-pointer" onClick={() => setSelectedPreOrder(preOrder)}>
-                      <td className="px-6 py-4">
-                        <code className="text-sm font-mono font-bold text-white">#{preOrder.id.slice(0, 8).toUpperCase()}</code>
+                      <td className="px-3 py-4">
+                        <code className="whitespace-nowrap text-sm font-mono font-bold text-white">#{preOrder.id.slice(0, 8).toUpperCase()}</code>
                       </td>
-                      <td className="px-6 py-4">
+                      <td className="px-3 py-4">
                         <div>
-                          <p className="font-bold text-white truncate max-w-xs">{preOrder.customerName || "Guest"}</p>
-                          <p className="text-xs text-white/50 truncate max-w-xs">{preOrder.customerEmail}</p>
+                          <p className="max-w-[220px] truncate font-bold text-white">{preOrder.customerName || "Guest"}</p>
+                          <p className="max-w-[220px] truncate text-xs text-white/50">{preOrder.customerEmail}</p>
                         </div>
                       </td>
-                      <td className="px-6 py-4">
+                      <td className="px-3 py-4">
                         <div className="flex items-center gap-3">
-                          {preOrder.product.imageUrl && (
-                            <img src={preOrder.product.imageUrl} alt={preOrder.product.name} className="w-10 h-10 rounded-lg object-cover" />
-                          )}
+                          <ProductThumb src={preOrder.product.imageUrl} name={preOrder.product.name} className="w-10 h-10 rounded-lg" />
                           <div className="min-w-0">
-                            <p className="font-bold text-white truncate">{preOrder.product.name}</p>
-                            <p className="text-xs text-white/40 truncate">{preOrder.product.sku}</p>
+                            <p className="whitespace-nowrap font-bold text-white">{preOrder.product.name}</p>
+                            <p className="whitespace-nowrap text-xs text-white/40">{preOrder.product.sku}</p>
                           </div>
                         </div>
                       </td>
-                      <td className="px-6 py-4 text-center">
+                      <td className="px-3 py-4 text-center">
                         <span className="font-bold text-white">{preOrder.quantity}</span>
                       </td>
-                      <td className="px-6 py-4 text-right">
+                      <td className="px-3 py-4 text-right">
                         <span className="font-display font-bold text-white">{formatCurrency(preOrder.totalAmount)}</span>
                       </td>
-                      <td className="px-6 py-4 text-center">
+                      <td className="px-3 py-4 text-center">
                         <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold border ${badgeStyle(preOrder.status)}`}>
                           {getStatusIcon(preOrder.status)}
                           {configFor(preOrder.status).label}
                         </span>
                       </td>
-                      <td className="px-6 py-4 text-center text-sm text-white/50">{formatDate(preOrder.createdAt)}</td>
-                      <td className="px-6 py-4 text-center">
+                      <td className="whitespace-nowrap px-3 py-4 text-center text-sm text-white/50">{formatDate(preOrder.createdAt)}</td>
+                      <td className="whitespace-nowrap px-3 py-4 text-center">
                         <div className="flex items-center justify-center gap-1">
                           <button
                             onClick={(e) => { e.stopPropagation(); setEditingPreOrder(preOrder); setEditForm({ status: "", customerName: preOrder.customerName || "", customerPhone: preOrder.customerPhone || "", notes: preOrder.notes || "" }); }}
@@ -388,7 +510,7 @@ const AdminPreOrdersPage = () => {
 
           {/* Pagination */}
           {totalPages > 1 && (
-            <div className="px-6 py-4 border-t border-white/10 flex items-center justify-between">
+            <div className="px-3 py-4 border-t border-white/10 flex items-center justify-between">
               <p className="text-sm text-white/50">
                 Showing {((currentPage - 1) * ITEMS_PER_PAGE) + 1} to {Math.min(currentPage * ITEMS_PER_PAGE, total)} of {total} pre-orders
               </p>
@@ -420,7 +542,7 @@ const AdminPreOrdersPage = () => {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/50 backdrop-blur-sm p-4"
+              className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
               onClick={() => setSelectedPreOrder(null)}
             >
               <motion.div
@@ -428,16 +550,14 @@ const AdminPreOrdersPage = () => {
                 animate={{ opacity: 1, scale: 1, y: 0 }}
                 exit={{ opacity: 0, scale: 0.98, y: 10 }}
                 transition={{ duration: 0.25 }}
-                className="bg-card rounded-2xl border border-border shadow-hero w-full max-w-4xl max-h-[90vh] overflow-y-auto"
+                className="bg-[#0b0b10] text-white rounded-2xl border border-white/10 shadow-hero w-full max-w-4xl max-h-[90vh] overflow-y-auto"
                 onClick={(e) => e.stopPropagation()}
               >
-                <div className="p-6 border-b border-border flex items-center justify-between">
+                <div className="p-6 border-b border-white/10 flex items-center justify-between">
                   <div className="flex items-center gap-4">
-                    {selectedPreOrder.product.imageUrl && (
-                      <img src={selectedPreOrder.product.imageUrl} alt={selectedPreOrder.product.name} className="w-16 h-16 rounded-lg object-cover" />
-                    )}
+                    <ProductThumb src={selectedPreOrder.product.imageUrl} name={selectedPreOrder.product.name} className="w-16 h-16 rounded-lg" />
                     <div>
-                      <h2 className="font-display font-bold text-lg">{selectedPreOrder.product.name}</h2>
+                      <h2 className="font-display font-bold text-lg text-white">{selectedPreOrder.product.name}</h2>
                       <p className="text-sm text-white/50">#{selectedPreOrder.id.slice(0, 8).toUpperCase()} • {formatDate(selectedPreOrder.createdAt)}</p>
                     </div>
                   </div>
@@ -508,9 +628,7 @@ const AdminPreOrdersPage = () => {
                       </h3>
                       <div className="space-y-3">
                         <div className="flex items-center gap-3">
-                          {selectedPreOrder.product.imageUrl && (
-                            <img src={selectedPreOrder.product.imageUrl} alt={selectedPreOrder.product.name} className="w-12 h-12 rounded-lg object-cover" />
-                          )}
+                          <ProductThumb src={selectedPreOrder.product.imageUrl} name={selectedPreOrder.product.name} className="w-12 h-12 rounded-lg" />
                           <div className="flex-1 min-w-0">
                             <p className="font-bold text-white truncate">{selectedPreOrder.product.name}</p>
                             <p className="text-xs text-white/40 truncate">{selectedPreOrder.product.sku}</p>
@@ -585,7 +703,7 @@ const AdminPreOrdersPage = () => {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/50 backdrop-blur-sm p-4"
+              className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
               onClick={() => setEditingPreOrder(null)}
             >
               <motion.div
@@ -593,17 +711,17 @@ const AdminPreOrdersPage = () => {
                 animate={{ opacity: 1, scale: 1, y: 0 }}
                 exit={{ opacity: 0, scale: 0.98, y: 10 }}
                 transition={{ duration: 0.25 }}
-                className="bg-card rounded-2xl border border-border shadow-hero p-6 w-full max-w-md"
+                className="bg-[#0b0b10] text-white rounded-2xl border border-white/10 shadow-hero p-6 w-full max-w-md"
                 onClick={(e) => e.stopPropagation()}
               >
-                <h3 className="font-display font-bold text-lg mb-6">Edit Pre-Order</h3>
+                <h3 className="font-display font-bold text-lg mb-6 text-white">Edit Pre-Order</h3>
                 <div className="space-y-4">
                   <div>
-                    <label className="block text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">Status</label>
+                    <label className="block text-xs font-semibold text-white/40 uppercase tracking-wider mb-1">Status</label>
                     <select
                       value={editForm.status}
                       onChange={(e) => setEditForm(prev => ({ ...prev, status: e.target.value }))}
-                      className="w-full px-4 py-3 rounded-full border border-border bg-secondary font-body text-sm focus:outline-none focus:ring-2 focus:ring-accent"
+                      className="w-full px-4 py-3 rounded-full border border-white/10 bg-white/5 text-white font-body text-sm focus:outline-none focus:ring-2 focus:ring-accent"
                     >
                       <option value="">Unchanged</option>
                       {VALID_STATUSES.map((status) => (
@@ -612,36 +730,36 @@ const AdminPreOrdersPage = () => {
                     </select>
                   </div>
                   <div>
-                    <label className="block text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">Customer Name</label>
+                    <label className="block text-xs font-semibold text-white/40 uppercase tracking-wider mb-1">Customer Name</label>
                     <input
                       type="text"
                       value={editForm.customerName}
                       onChange={(e) => setEditForm(prev => ({ ...prev, customerName: e.target.value }))}
-                      className="w-full px-4 py-3 rounded-full border border-border bg-secondary font-body text-sm focus:outline-none focus:ring-2 focus:ring-accent"
+                      className="w-full px-4 py-3 rounded-full border border-white/10 bg-white/5 text-white font-body text-sm focus:outline-none focus:ring-2 focus:ring-accent"
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">Customer Phone</label>
+                    <label className="block text-xs font-semibold text-white/40 uppercase tracking-wider mb-1">Customer Phone</label>
                     <input
                       type="tel"
                       value={editForm.customerPhone}
                       onChange={(e) => setEditForm(prev => ({ ...prev, customerPhone: e.target.value }))}
-                      className="w-full px-4 py-3 rounded-full border border-border bg-secondary font-body text-sm focus:outline-none focus:ring-2 focus:ring-accent"
+                      className="w-full px-4 py-3 rounded-full border border-white/10 bg-white/5 text-white font-body text-sm focus:outline-none focus:ring-2 focus:ring-accent"
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-1">Notes</label>
+                    <label className="block text-xs font-semibold text-white/40 uppercase tracking-wider mb-1">Notes</label>
                     <textarea
                       value={editForm.notes}
                       onChange={(e) => setEditForm(prev => ({ ...prev, notes: e.target.value }))}
                       rows={3}
-                      className="w-full px-4 py-3 rounded-xl border border-border bg-secondary font-body text-sm focus:outline-none focus:ring-2 focus:ring-accent resize-none"
+                      className="w-full px-4 py-3 rounded-xl border border-white/10 bg-white/5 text-white font-body text-sm focus:outline-none focus:ring-2 focus:ring-accent resize-none"
                     />
                   </div>
                   <div className="flex gap-3 pt-4">
                     <button
                       onClick={() => setEditingPreOrder(null)}
-                      className="flex-1 py-3 rounded-full border-2 border-border font-display font-bold text-sm transition-colors hover:bg-secondary"
+                      className="flex-1 py-3 rounded-full border-2 border-white/15 text-white font-display font-bold text-sm transition-colors hover:bg-white/5"
                     >
                       Cancel
                     </button>

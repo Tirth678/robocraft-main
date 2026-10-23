@@ -48,6 +48,13 @@ services:
         value: RoboCraft <onboarding@resend.dev>
       - key: ADMIN_EMAILS
         value: admin@robocraft.com,tirth@robocraft.com
+      # admin-service fails closed: without this allow-list only localhost
+      # origins pass CORS, so the deployed console could never log in. Set to
+      # the admin console origin (https://<admin-project>.vercel.app).
+      - key: ADMIN_ALLOWED_ORIGINS
+        sync: false
+      - key: ADMIN_COOKIE_SECURE
+        value: "true"
       # CORS allow-list + admin deep links in email. Put the real Vercel origins
       # here once the frontends are deployed (they can be edited in the
       # dashboard later — no redeploy of the image needed for env changes).

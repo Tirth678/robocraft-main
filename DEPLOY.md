@@ -70,21 +70,53 @@ path if the project outgrows one container).
 ## Back4App Containers (single-container deploy)
 
 Back4App builds the root `Dockerfile`, so it runs the same one-container stack as
-the Render section, with two settings that are easy to get wrong:
+the Render section, with three settings that are easy to get wrong:
 
 - **Root directory `./`** — the Dockerfile installs the workspace once at the
   repo root; a subdirectory has no `Dockerfile` or `bun.lock`.
-- **Port `8081`, health check `/health`** — the gateway answers `/health`; `/`
-  is a 404, so a default `/` check marks a perfectly good container unhealthy.
-  Set `PORT=8081` as an environment variable too, so nothing disagrees.
+- **Port `8001`, health check path `/health`** — the gateway answers `/health`;
+  `/` is a 404, so a default `/` check marks a perfectly good container
+  unhealthy. `8001` is Back4App's injected `PORT`, and the image declares
+  exactly that (`EXPOSE 8001`) so the two agree.
+- **Never set `PORT` as an environment variable.** Back4App injects it and
+  routes to the value in the Port field; a `PORT=8081` in the env list makes the
+  gateway bind a port nothing routes to, and the public hostname then answered
+  as whichever service happened to hold the detected port (auth-service on
+  `:3001`, so every `/api/*` call 404'd while `/health` looked green).
+
+`scripts/start-backend.sh` also gives the gateway a second listener on `:3001`
+(`PUBLIC_ALIAS_PORT`) because Back4App keeps routing to the port it detected on
+the first boot even after the Port setting changes; auth-service moved to
+`:3101` so it cannot occupy that port. Set `PUBLIC_ALIAS_PORT=` (empty) to drop
+the extra listener once the Port field is known-good.
+
+Auto-deploy on push is a per-app toggle and defaults to **off**: a `git push`
+changes nothing until **Deploy** is pressed in the dashboard.
 
 There is no place for the Redis sidecar on a single-container host, so cart
 falls back to in-memory sessions and the email queue fails loudly (orders still
 succeed) — add a free Upstash `REDIS_URL` to restore both. The free 256 MB
 tier is below what seven Bun processes need; use 1 GB or more.
 
+Environment variables: paste the whole `.env.render` block into **Environment →
+Bulk Edit**. Three of them are origin placeholders that must be replaced before
+the frontends go live — `CUSTOMER_FRONTEND_URL` (storefront), and
+`ADMIN_DASHBOARD_URL` (admin console, also used for email deep links).
 `INVENTORY_PUBLIC_URL` must be `https://<app>.b4a.run/inventory` once the app
 URL exists, or digital-delivery links point at nothing.
+
+Verify a deploy from outside — `/health` must answer `"service":"api-gateway"`
+with the route table, `/inventory/products` must return products, and
+`/api/chat` must answer `501` (the gateway's own unimplemented-route reply):
+
+```bash
+curl -s https://<app>.b4a.run/health | head -c 200
+curl -s https://<app>.b4a.run/inventory/products | head -c 200
+```
+
+If `/health` says `auth-service`, the platform is still routing to `:3001`
+without the gateway listening there — check the Port field and that the image
+carries the current `start-backend.sh`.
 
 ## AWS (single EC2 host)
 
@@ -223,12 +255,16 @@ time** — each environment needs its own build.
   if the storefront is to bypass the gateway and call inventory directly.
 - `apps/admin` → Vercel, separate project (Root Directory `apps/admin`).
   `apps/admin/vercel.json` pins build/output, adds the SPA fallback and rewrites
-  `/admin-api/*` to admin-service — **edit that rewrite's destination to your
-  admin-service Railway URL before deploying** (it is a literal placeholder;
-  Vercel rewrites cannot read env vars). Leave `VITE_ADMIN_SERVICE_URL` unset so
-  the app calls the same-origin proxy; only set it to an absolute origin if you
-  deliberately move API calls off the proxy, which then requires changing the
-  cookie to `SameSite=None` — don't.
+  `/admin-api/*` to the gateway's `/admin-api` — **that destination is a literal
+  URL (Vercel rewrites cannot read env vars) and currently points at the Back4App
+  app**; repoint it when the backend moves. Keep the `/admin-api` prefix on the
+  destination when targeting the single-container deploy: the gateway strips it
+  before forwarding to admin-service on its private port. Pointing at a
+  standalone admin-service instead drops the prefix
+  (`https://admin-service.example.com/:path*`). Leave `VITE_ADMIN_SERVICE_URL`
+  unset so the app calls the same-origin proxy; only set it to an absolute origin
+  if you deliberately move API calls off the proxy, which then requires changing
+  the cookie to `SameSite=None` — don't.
 
 There is one name per setting now: `VITE_INVENTORY_SERVICE_URL` (not
 `VITE_INVENTORY_URL`) and `VITE_BACKEND_URL` (not `VITE_API_URL`). An older

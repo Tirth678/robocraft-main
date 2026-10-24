@@ -101,6 +101,23 @@ const allowedOrigins = [
 
 const HOP_BY_HOP = new Set(['host', 'connection', 'content-length', 'transfer-encoding']);
 
+/**
+ * Upstream response headers the browser needs verbatim. `location` carries the
+ * signed-URL redirects inventory-service answers `/media` and `/downloads` with,
+ * `set-cookie` carries the admin console's session through the `/admin-api`
+ * proxy, and the rest keep caching and download filenames intact. Everything
+ * else (encoding, length, date) is left to this hop, or the body would disagree
+ * with its own framing.
+ */
+const FORWARDED_RESPONSE_HEADERS = new Set([
+  'content-type',
+  'content-disposition',
+  'cache-control',
+  'etag',
+  'last-modified',
+  'location',
+]);
+
 const app = new Elysia()
   .use(
     cors({
@@ -164,10 +181,24 @@ const app = new Elysia()
       });
 
       const payload = await response.text();
-      set.status = response.status;
-      const contentType = response.headers.get('content-type');
-      if (contentType) set.headers['content-type'] = contentType;
-      return payload;
+
+      // A plain object return cannot carry repeated `set-cookie` headers, so the
+      // downstream response is rebuilt by hand: the platform's CORS headers that
+      // `@elysiajs/cors` already wrote onto `set.headers` are merged in, which
+      // keeps the allow-list effective on responses this handler synthesises.
+      const outgoing = new Headers();
+      response.headers.forEach((value, key) => {
+        if (FORWARDED_RESPONSE_HEADERS.has(key.toLowerCase())) outgoing.set(key, value);
+      });
+      for (const cookie of response.headers.getSetCookie?.() ?? []) {
+        outgoing.append('set-cookie', cookie);
+      }
+      for (const [key, value] of Object.entries(set.headers)) {
+        if (value === undefined || value === null) continue;
+        outgoing.set(key, String(value));
+      }
+
+      return new Response(payload, { status: response.status, headers: outgoing });
     } catch (error) {
       console.error(`[GATEWAY] ${route.service} unreachable:`, error);
       set.status = 502;

@@ -8,7 +8,7 @@
   "rewrites": [
     {
       "source": "/admin-api/:path*",
-      "destination": "https://REPLACE-WITH-ADMIN-SERVICE.up.railway.app/:path*"
+      "destination": "https://robocraftmain-q72zoavt.b4a.run/admin-api/:path*"
     },
     { "source": "/(.*)", "destination": "/index.html" }
   ]

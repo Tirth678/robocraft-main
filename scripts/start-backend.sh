@@ -15,13 +15,34 @@ set -uo pipefail
 GATEWAY_PORT="${PORT:-8001}"
 export NODE_ENV="${NODE_ENV:-production}"
 
+# Back4App also publishes whichever port it detected on the app's first boot and
+# keeps routing there even after the Port setting changes — it pinned :3001 while
+# auth-service owned it, so the public URL answered as auth-service and every
+# /api/* call 404'd. The gateway therefore also listens on that alias port, and
+# auth-service moves off it. Both listeners serve the same router, so the public
+# hostname reaches the gateway whichever port the platform wired up. Set
+# PUBLIC_ALIAS_PORT= to disable it on a platform that honours PORT strictly.
+ALIAS_PORT="${PUBLIC_ALIAS_PORT:-3001}"
+AUTH_PORT=3101
+AUTH_SERVICE_URL="http://localhost:${AUTH_PORT}"
+
+export AUTH_SERVICE_URL
+
 pids=()
 spawn() { "$@" & pids+=($!); }
 
-echo "[start-backend] gateway :${GATEWAY_PORT} | internals :3001-:3005,:3007"
+PUBLIC_PORTS="${GATEWAY_PORT}"
+if [ -n "$ALIAS_PORT" ] && [ "$ALIAS_PORT" != "$GATEWAY_PORT" ]; then
+  PUBLIC_PORTS="${GATEWAY_PORT} +alias :${ALIAS_PORT}"
+fi
+
+echo "[start-backend] gateway :${PUBLIC_PORTS} | auth :${AUTH_PORT} | internals :3002-:3005,:3007"
 
 spawn env PORT="$GATEWAY_PORT" bun apps/api-gateway/src/index.ts
-spawn env PORT=3001 bun services/auth-service/src/index.ts
+if [ -n "$ALIAS_PORT" ] && [ "$ALIAS_PORT" != "$GATEWAY_PORT" ]; then
+  spawn env PORT="$ALIAS_PORT" bun apps/api-gateway/src/index.ts
+fi
+spawn env PORT="$AUTH_PORT" bun services/auth-service/src/index.ts
 spawn env PORT=3002 bun services/inventory-service/src/index.ts
 spawn env PORT=3003 bun services/cart-service/src/index.ts
 spawn env PORT=3004 bun services/billing-service/src/index.ts

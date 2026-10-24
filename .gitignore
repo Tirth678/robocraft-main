@@ -83,3 +83,14 @@ specific.local
 
 # Locally generated Render env block (contains live secrets, never commit)
 .env.render
+
+# Back4App env block (contains live secrets, never commit)
+deploy/back4app/backend.env
+
+# AWS deploy kit: local secrets and terraform state (never commit)
+deploy/aws/backend.env
+deploy/aws/terraform.tfvars
+deploy/aws/.terraform/
+deploy/aws/terraform.tfstate
+deploy/aws/terraform.tfstate.*
+deploy/aws/crash.log

@@ -1,0 +1,23 @@
+# SITE_ADDRESS comes from the container environment (see compose.yaml).
+#
+# Caddy obtains and renews the certificate automatically over HTTP-01, which is
+# why the security group keeps port 80 open. The address is whatever deploy.sh
+# wrote into /srv/robocraft/.env: an sslip.io name by default, or a real domain
+# once you have one — the config does not need to change either way.
+{$SITE_ADDRESS} {
+	encode zstd gzip
+
+	# One origin serves both frontends' needs: /api/* and /inventory/* for the
+	# storefront, /admin-api/* for the Vercel admin console's same-origin proxy.
+	# The gateway already routes all three, so nothing is rewritten here.
+	reverse_proxy backend:8081 {
+		# Streaming responses (product image downloads, digital delivery) must
+		# not be buffered until the handler finishes.
+		flush_interval -1
+	}
+
+	log {
+		output stdout
+		format console
+	}
+}

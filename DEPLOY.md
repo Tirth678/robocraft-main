@@ -67,6 +67,45 @@ colonsole can proxy to the single public origin.
 The multi-service Railway layout below remains the reference topology (and the
 path if the project outgrows one container).
 
+## Back4App Containers (single-container deploy)
+
+Back4App builds the root `Dockerfile`, so it runs the same one-container stack as
+the Render section, with two settings that are easy to get wrong:
+
+- **Root directory `./`** — the Dockerfile installs the workspace once at the
+  repo root; a subdirectory has no `Dockerfile` or `bun.lock`.
+- **Port `8081`, health check `/health`** — the gateway answers `/health`; `/`
+  is a 404, so a default `/` check marks a perfectly good container unhealthy.
+  Set `PORT=8081` as an environment variable too, so nothing disagrees.
+
+There is no place for the Redis sidecar on a single-container host, so cart
+falls back to in-memory sessions and the email queue fails loudly (orders still
+succeed) — add a free Upstash `REDIS_URL` to restore both. The free 256 MB
+tier is below what seven Bun processes need; use 1 GB or more.
+
+`INVENTORY_PUBLIC_URL` must be `https://<app>.b4a.run/inventory` once the app
+URL exists, or digital-delivery links point at nothing.
+
+## AWS (single EC2 host)
+
+`deploy/aws/` runs the same single-container image on one EC2 instance, with
+Redis beside it and Caddy terminating TLS. Use it when Render/Railway/Specific
+are not available and the backend has to live in an AWS account.
+
+- Terraform creates the security group, key pair, instance and Elastic IP;
+  `cloud-init.sh` installs Docker and prepares `/srv/robocraft` on first boot.
+- `./deploy/aws/deploy.sh` syncs the checkout over rsync, uploads
+  `compose.yaml` / `Caddyfile` / `backend.env`, then builds and restarts.
+- Certificates come from a `*.sslip.io` name derived from the Elastic IP, so
+  HTTPS works without owning a domain — required, because the Vercel frontends
+  are HTTPS and would otherwise block the API as mixed content.
+- Point the storefront's `VITE_BACKEND_URL` and the admin console's
+  `/admin-api` rewrite at the reported `api_base_url`.
+
+See [deploy/aws/README.md](deploy/aws/README.md) for the full runbook, costs and
+teardown. The `specific.hcl` definition remains the managed-cloud path; the two
+are independent.
+
 ## Railway setup
 
 One project for the storefront stack, a **separate project** for admin-service

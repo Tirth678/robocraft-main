@@ -9,7 +9,10 @@
 # rather than silently serving a half-working stack.
 set -uo pipefail
 
-GATEWAY_PORT="${PORT:-10000}"
+# The platform injects PORT (Render/Railway: 10000, Back4App: 8001). The
+# fallback matches this image's EXPOSE so a platform that routes without
+# injecting PORT still reaches the gateway rather than an empty port.
+GATEWAY_PORT="${PORT:-8001}"
 export NODE_ENV="${NODE_ENV:-production}"
 
 pids=()

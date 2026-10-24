@@ -30,11 +30,11 @@ RUN chmod +x scripts/start-backend.sh
 
 ENV NODE_ENV=production
 
-# Only the gateway is public: it binds $PORT (default 10000, this image sets
-# PORT=8081 below). Declaring it keeps platforms that auto-detect a port from
-# guessing an internal one — Back4App routed to auth-service's :3001 until the
-# exposed port was pinned, so the domain answered as the wrong service.
-ENV PORT=8081
-EXPOSE 8081
+# Only the gateway is public; it binds the platform's PORT. Do not pin PORT here:
+# a baked-in default silently disagrees with the port the platform routes to when
+# it does not inject its own (Back4App routes :8001 and published whichever port
+# answered). EXPOSE documents the contract; Back4App's Port setting and its
+# injected $PORT are what scripts/start-backend.sh actually binds.
+EXPOSE 8001
 
 CMD ["./scripts/start-backend.sh"]
